@@ -279,6 +279,8 @@ struct NotesWindowView: View {
                                 Divider()
                                 transcript.padding(.horizontal, 20).padding(.top, 12).frame(maxWidth: .infinity)
                             }
+                        } else if tab == "copilot" {
+                            CopilotView(bridge: model.copilotBridge)
                         } else if tab == "notes" {
                             notesPane
                         } else {
@@ -400,6 +402,9 @@ struct NotesWindowView: View {
                 HStack(spacing: 0) {
                     segment(L("纪要"), "notes")
                     segment(engine.notes.isEmpty && heard > 0 ? L("文字记录 · \(heard)") : L("文字记录"), "transcript")
+                    if model.copilotBridge.isCopilotActive {
+                        segment(L("提词"), "copilot")
+                    }
                 }
                 .padding(4)
                 .background(RoundedRectangle(cornerRadius: 12).fill(Palette.fill))

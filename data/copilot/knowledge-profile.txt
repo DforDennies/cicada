@@ -1,0 +1,132 @@
+## 專業知識檔案 — 洪伯瑄 Dennies Hong
+> 來源：135 篇學習筆記 + 52 篇 blog + 30+ GitHub repos
+
+### 搜尋系統（深度專家）
+- Hermes 混合搜尋引擎 v1.0→v1.5：BM25 + Embedding cosine 混合排序
+- Embedding 選型：MiniLM-64d vs OpenAI embedding，NDCG 更高、推理快 64%
+- ES 5 種 Index 架構（Profile/Post/Content/Tag/Search）
+- CSQI 搜尋品質指標框架：量化搜尋品質的排序演算法與指標體系
+- Query Expansion 微調：Fine-tune 查詢擴展提升召回率
+- 7 語系 Analyzer（zh/ja/ko/en/th/vi/id）
+
+### 推薦系統（深度專家）
+- Similar-KOL V1→V2→V3 演進：DeepWalk + FAISS 向量推薦
+- ALS（Alternating Least Squares）/ DCR / CHAOS 推薦系統
+- 推薦品質評估：NDCG、MRR、Hit Rate
+- 知識圖譜：Neo4j Social Graph 探索
+
+### NLP / 文本分析（實戰經驗）
+- TextAction：六大行為意圖萃取（Review/Tutorial/Unbox/Giveaway/Challenge/Collab）
+- TextSponsor：業配偵測多語言系統，六語系
+- GeneralTag：HMTC 階層式多標籤分類，從傳統 ML → LLM 標註（成本差 250x）
+- Autotag：多語言自動分類系統完整演進
+- NLP 微服務群：關鍵字萃取、語言偵測、多語管線
+- NLPFactory：LLM 標註工廠與標註流程設計
+
+### LLM / VLM / Agent（前沿技術）
+- Multi-Agent 架構：Swarm / Selector / Supervisor 三種模式實戰
+- MCP 協議：4 種 transport（stdio/docker/SSE/streamable HTTP）
+- Mem0 記憶系統：Short-term / Long-term / Entity Memory
+- LLM-as-a-Judge：模型輸出品質評估方法
+- VLM 蒸餾實戰：Qwen3-VL-4B 台灣版完整訓練記錄
+- GRPO（Group Relative Policy Optimization）實作
+- 推理蒸餾：Qwen3.5-27B × Claude Opus
+- LLM 安全：72 篇論文 / 12 類 / 22 必讀，權限感知 RAG、Prompt Injection、Guardrails
+- Nexus 企業 AI Agent 平台產品演進
+- LangFuse tracing、Experiment Manager
+
+### 數據工程與架構（設計決策者）
+- 數據湖演進五階段：PG → BigQuery → Trino/Iceberg → StarRocks（成本 $2,407→$466）
+- Trino：Iceberg connector + Nessie catalog + Parquet/Snappy + GCS + Alluxio cache
+- 4.75M KOL 端到端八層資料流架構：爬蟲→清洗→儲存→索引→推薦→搜尋→API→前端
+- Kafka/Flink/CDC/PubSub 數據管線
+- Redis Sentinel 架構遷移
+- 全球化數據隔離架構（Country Isolation）
+- GraphQL：Gaia SDK + DataCenter 架構
+
+### 基礎設施與 SRE（架構級理解）
+- GKE 15+ cluster 管理
+- ArgoCD GitOps 部署架構
+- 62 起生產事故模式分析 → 三策略（Fallback / 閘門 / 隔離）
+- 90+ Grafana Dashboard + Alert 體系
+- CI/CD Pipeline 架構設計
+- Postmortem 手冊與實踐
+
+### 電腦視覺（了解原理）
+- CVFactory：CV 分析技術棧
+- Autoprofile：CV + NLP 用戶畫像與受眾分析
+- VLM（Vision-Language Model）訓練與蒸餾
+
+### 數據分析與商業智慧（核心能力）
+- Amplitude：144M 事件分析、73M 事件流量分析、8 維健康評分 + Benchmark
+- GA4 歸因引擎：9 Key Events × 10 管道 × 5 層報告、發現 Paid Social 0.3% 真實 CVR
+- Metabase：34 個儀表板架構、KolR 業務儀表板
+- 銷售 Pipeline：1,123 筆交易、GRR/NRR/MRR、$0 差異
+- 36 項 DS 研究彙整成 13 個核心指標
+- A/B Testing 分流分桶設計
+- Aha Moment 產品激活方法論
+- 解鎖經濟學：用行為數據驗證定價策略
+
+### 產品方法論（系統化思維）
+- AI 功能優先級：P0→P3 取捨邏輯、RICE 評分
+- PM-ML 翻譯層：120+ 次 Weekly Sync-up 的溝通方法
+- AI 不確定性管理：模型準確率 95% 時的產品策略
+- SaaS 產品七年演進：從內部工具到全球化 AI 平台
+- LLM 產品化：AI 翻譯成客戶聽得懂的語言
+- 客戶交付實錄：研華與國泰的真實案例
+
+### AI 企業顧問（Aiworks 經驗 — 深度實戰）
+- 10+ 企業客戶：金控、壽險、產險、半導體、證券監理
+- **全球前三半導體集團治理顧問**：10,000+ 工程師、5 個月、11 項議題全覆蓋（權限設計/成本治理/Skills 生命週期/模型選擇/HITL/合規/ROI/賦能）
+- AI 治理合規：2,000 席 ChatGPT Enterprise 治理架構（動態群組權限、角色覆寫模型控制）
+- Token Budget 六層推導模型：100 組實驗驗證、Cache 命中率 61-96%、GPT-6 世代更新推估
+- Compliance 觀測平台架構設計：6 層 Pipeline、20+ 物件治理、Fact Table Schema、C4 Model
+- Compliance API 自動化管線：Stateful + Event-based 雙軌、3,000+ JSONL 增量同步
+- 壽險 AI Agent：8 核保場景、客戶×OpenAI×內部三方協調
+- 產險五子專案並行管理：LINE 報價、AS400 整合、培訓
+- Presales 全流程：提案簡報、現場 Demo、精算報價（Audit/Asset 級距定價）
+- SBIR 政府補助策略：Phase 2 上限 1,200 萬、Mission Control 產品研發
+- 台灣企業 AI 市場分析：地端 vs 雲端 vs 客製、五模組飛輪設計、品牌傘策略
+
+### 企業 AI 導入方法論（系統化框架）
+- **三階段導入方法論**：Phase 1 User Pilot（4 週流程梳理+實作）→ Phase 2 Enterprise 治理（3-4 月）→ Phase 3 平台管理擴散
+- **六階段金融業導入框架**：需求釐清→資安評估→治理設計→試點驗證→導入準備→場景擴散
+- 核心原則：01/02 併行，種子部門第 4 週即開始使用，先用再治理
+- 導入三件套文件：Quickstart / Compliance API SOP / 資安指引
+- FTE（Full-Time-Employee）量化效益估算方法
+
+### 企業 AI 資安控制（深度實戰）
+- 八層資安控制架構：網路架構 → IP Allowlist → Workspace Header → SSO/SCIM/RBAC → Lockdown Mode → EKM → TLS Bypass → Compliance API 存取
+- OpenAI Trust Portal 證據整理：ISO 證書、SOC 2 Type 2、安全白皮書、DPA
+- Workspace Header 注入：ChatGPT-Allowed-Workspace-Id，限制核准工作區
+- EKM（Enterprise Key Management）：客戶 KMS 管理主金鑰，保護靜態資料
+- Lockdown Mode：限制網頁瀏覽/Agent 模式降低提示注入風險
+- Secure MCP Tunnel：企業環境 MCP 安全連線
+- 20 項控制與資料驗證情境清單
+
+### Skill 治理框架（產品創新）
+- **Skill Registry & Governance Gate** 四層治理：風險/功能/責任邊界/生命週期
+- 風險治理：Prompt Injection 偵測、資料外傳掃描、越權存取分析
+- 功能治理：可執行性與意圖確認，行為-設計一致性比對
+- 責任邊界治理：正反例測試、描述重疊分析、觸發搶占風險管理
+- 生命週期治理：版本管控、到期複查、回滾、停用
+
+### Mission Control 產品架構（產品設計者）
+- **Audit 產品**：4 Docker 容器（Ingest/Transform/API/Web）、DuckDB OLAP + Parquet、Docker Compose、離線部署（Air-gapped）、OCI Archive + SHA-256
+- **Asset 產品**：Scanner SDK（Python）、PII 偵測、Prompt Injection 偵測、Skill 相似度比對
+- Audit 前端：Next.js + React + shadcn/UI，多層級鑽取式瀏覽
+- 反向代理：Caddy 統一 HTTPS
+- VM 規格：16 vCPU / 64 GB RAM / 1 TB SSD、2,000 人規模 2 年保留
+- 7 張分析表：事件總表/對話訊息/稽核操作/App 呼叫/成本彙總/帳單明細/使用者摘要
+- 殺手功能：對話內容逐句稽核（OpenAI 原生做不到）
+
+### 企業客戶研究方法（PM 方法論）
+- 結構化訪談設計：問過去的行為，不問未來的意願
+- 刺激物策略：口袋裡的錨點，不是逐條過的 checklist
+- 四區塊訪綱：使用者與權限 → 管理節奏與落差 → 成本管控與架構 → 收斂
+- 三種角色視角辨認：主管/IT 管理/資安合規
+- 回饋收集→需求定義的 POC 方法論
+
+### Chrome Extension 開發（Side Project）
+- Credit-Catch：Manifest V3 + Service Worker + Content Script、即時監控 ChatGPT credit 消耗
+- 資料本地儲存（chrome.storage.local），零上傳設計

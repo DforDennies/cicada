@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
     let talkCombo = HotKey(id: 1, shortcut: .defaultTalk)
     let talkRight = RightOptionKey()
     let toggleKey = HotKey(id: 2, shortcut: .defaultToggle)
+    let copilotBridge = CopilotBridge()
     lazy var listen = ListenEngine(settings: settings)
     /// The one echo-cancelling mic unit, shared by the talk key and 电脑和会议室's room.
     let voiceMic = VoiceMic()
@@ -344,6 +345,12 @@ final class AppModel: ObservableObject {
         }
         speak.onUtterance = { [weak self] src, dst, from, to, ago in
             self?.recordSaid(src, dst, from: from, to: to, secondsAgo: ago)
+            self?.copilotBridge.heardMyVoice(src)
+        }
+        copilotBridge.speakText = { [weak self] text, lang in
+            guard let self else { return }
+            let locale = Locale(identifier: lang).identifier
+            Task { await self.speak.speak(text, language: locale) }
         }
 
         let began: () -> Void = { [weak self] in
@@ -1401,6 +1408,7 @@ final class AppModel: ObservableObject {
             }
         }
         recordHeard(seg, duration: duration)
+        copilotBridge.heardFinal(seg)
     }
 
     /// A sentence from the room mic: an echo of the Mac's audio is dropped; the rest waits a moment
@@ -2263,6 +2271,63 @@ final class AppModel: ObservableObject {
             for (kind, ext) in [("md", "md"), ("srt", "srt"), ("word", "docx")] {
                 let ok = writeExport(s, kind: kind, to: dir.appendingPathComponent("export.\(ext)"))
                 debugLog("export \(ext) ok=\(ok)")
+            }
+        // copilot:interview — start interview mode
+        // copilot:research — start research/訪談 mode
+        // copilot:stop — revert to meeting mode
+        // copilot:key:<key> — save Gemini API key
+        // copilot:auto:on/off — toggle auto-speak
+        case "copilot":
+            switch arg {
+            case "interview":
+                copilotBridge.startCopilot(mode: .interview)
+                debugLog("copilot: interview mode (autoSpeak=\(copilotBridge.autoSpeak), bank=\(copilotBridge.selectedBank?.name ?? "none"))")
+            case "research":
+                copilotBridge.startCopilot(mode: .research)
+                debugLog("copilot: research mode (autoSpeak=\(copilotBridge.autoSpeak))")
+            case "stop":
+                copilotBridge.stopCopilot()
+                debugLog("copilot: stopped, meeting mode")
+            case "auto:on":
+                copilotBridge.autoSpeak = true
+                debugLog("copilot: auto-speak ON")
+            case "auto:off":
+                copilotBridge.autoSpeak = false
+                debugLog("copilot: auto-speak OFF (teleprompter only)")
+            case "bank:list":
+                if copilotBridge.storyBanks.isEmpty {
+                    debugLog("copilot: no story banks loaded")
+                } else {
+                    for bank in copilotBridge.storyBanks {
+                        let sel = bank.id == copilotBridge.selectedBankId ? " ✓" : ""
+                        debugLog("copilot: bank '\(bank.name)'\(sel) — stories=\(bank.stories.count)ch knowledge=\(bank.knowledgeProfile.count)ch jd=\(bank.jobDescription.count)ch")
+                    }
+                }
+            case "bank:reload":
+                copilotBridge.loadDefaultStoryBanks()
+                debugLog("copilot: reloaded story banks (\(copilotBridge.storyBanks.count) loaded)")
+            case "bank:on":
+                copilotBridge.storyBankEnabled = true
+                debugLog("copilot: story bank enabled (bank=\(copilotBridge.selectedBank?.name ?? "none"))")
+            case "bank:off":
+                copilotBridge.storyBankEnabled = false
+                debugLog("copilot: story bank disabled")
+            default:
+                if arg.hasPrefix("key:") {
+                    let key = String(arg.dropFirst(4))
+                    AIKey.save(key, "gemini")
+                    debugLog("copilot: gemini key saved (\(key.prefix(8))...)")
+                } else if arg.hasPrefix("bank:") {
+                    let bankName = String(arg.dropFirst(5))
+                    if copilotBridge.storyBanks.contains(where: { $0.id == bankName }) {
+                        copilotBridge.selectedBankId = bankName
+                        debugLog("copilot: selected story bank '\(bankName)'")
+                    } else {
+                        debugLog("copilot: unknown bank '\(bankName)'. use copilot:bank:list")
+                    }
+                } else {
+                    debugLog("copilot: use interview/research/stop/key:<key>/auto:on/auto:off/bank:list/bank:<name>")
+                }
             }
         default: debugFail("unknown debug command: \(parts.first ?? "")", code: "unknown_command")
         }

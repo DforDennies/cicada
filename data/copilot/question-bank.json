@@ -1,0 +1,221 @@
+{
+  "meta": {
+    "description": "大廠 AI PM 面試題庫 — 來源: Google, Meta, Amazon, OpenAI 等",
+    "version": "1.0",
+    "totalQuestions": 60,
+    "categories": ["INTRO", "BEHAVIORAL", "TECHNICAL", "PRODUCT_SENSE", "METRICS", "STRATEGY", "RESPONSIBLE_AI", "EXECUTION", "MOTIVATION", "SELF_ASSESS", "NEGOTIATION", "REVERSE", "GREETING", "CASUAL", "REACT", "CLARIFY", "TRANSITION", "PUSHBACK", "ESTIMATION", "HYPOTHETICAL", "PERSONAL", "TECH_ISSUE", "TIMELINE", "CLOSING", "CURVEBALL"]
+  },
+  "sampleJD": {
+    "title": "Senior AI Product Manager",
+    "company": "Tech Company (FAANG-level)",
+    "text": "We're looking for a Senior AI Product Manager to lead our AI-powered platform products. You'll own the product roadmap for our AI/ML features, work closely with engineering and data science teams, and drive 0-to-1 product initiatives.\n\nResponsibilities:\n- Define and execute the product strategy for AI-powered features\n- Collaborate with ML engineers and data scientists on model development and evaluation\n- Own the end-to-end product lifecycle from ideation to launch and iteration\n- Design evaluation frameworks for AI model quality and product metrics\n- Balance innovation velocity with responsible AI practices\n- Drive cross-functional alignment across engineering, design, data science, and business teams\n\nRequirements:\n- 5+ years of product management experience, with 3+ years on AI/ML products\n- Strong technical understanding of ML concepts (training, evaluation, deployment)\n- Experience shipping AI products at scale (millions of users)\n- Track record of 0-to-1 product launches\n- Excellent stakeholder management and communication skills\n- Experience with LLM/GenAI products preferred\n\nNice to have:\n- Experience with search/recommendation systems\n- Background in NLP or computer vision\n- Experience with data platform or infrastructure products\n- Multi-language product experience"
+  },
+  "interviewFlows": [
+    {
+      "name": "standard_45min",
+      "description": "標準 45 分鐘面試流程，有脈絡的追問",
+      "rounds": [
+        {
+          "phase": "warm_up",
+          "questions": [
+            {"q": "請先簡單自我介紹一下，聊聊你過去的經歷", "type": "INTRO", "followUp": "你剛提到的那個 AI 產品，能多說一點當時的挑戰嗎？"},
+            {"q": "Can you walk me through your background and what brings you here today?", "type": "INTRO", "lang": "en", "followUp": "Interesting. What was the most impactful project in that journey?"}
+          ]
+        },
+        {
+          "phase": "behavioral",
+          "questions": [
+            {"q": "跟我說一個你從零到一打造產品的經驗，你在裡面扮演什麼角色？", "type": "BEHAVIORAL", "followUp": "那個過程中最大的技術風險是什麼？你怎麼處理的？"},
+            {"q": "Tell me about a time you had to make a difficult trade-off between shipping faster and ensuring quality.", "type": "BEHAVIORAL", "lang": "en", "followUp": "How did the team react? Would you make the same decision again?"},
+            {"q": "說一個你跟工程師或 data scientist 意見不合的經驗，最後怎麼解決的？", "type": "BEHAVIORAL", "followUp": "如果那個人堅持不讓步，你會怎麼做？"},
+            {"q": "Tell me about a time you held leadership accountable while being willing to accept consequences.", "type": "BEHAVIORAL", "lang": "en"},
+            {"q": "講一個你的產品或模型在上線後出問題的經驗，你怎麼處理的？", "type": "BEHAVIORAL", "followUp": "從那次經驗你學到什麼？後來有改變什麼流程嗎？"},
+            {"q": "有沒有一次你做了一個違反直覺的產品決策，結果證明是對的？", "type": "BEHAVIORAL"}
+          ]
+        },
+        {
+          "phase": "technical",
+          "questions": [
+            {"q": "使用者抱怨我們的 AI 助手回答很有自信但其實是錯的，你會怎麼處理？", "type": "TECHNICAL", "followUp": "那你怎麼衡量 hallucination rate？多高的比率你會拒絕上線？"},
+            {"q": "Walk me through how you would design a search system for a platform with millions of creators.", "type": "TECHNICAL", "lang": "en", "followUp": "How would you handle the cold-start problem for new creators with no engagement data?"},
+            {"q": "Custom-trained model、fine-tune、還是直接用 third-party API，你怎麼決定？", "type": "TECHNICAL", "followUp": "如果老闆說預算只有原來的三分之一，你的策略會怎麼變？"},
+            {"q": "How do you write a PRD for a feature whose output is probabilistic and occasionally wrong?", "type": "TECHNICAL", "lang": "en"},
+            {"q": "跟我解釋一下 RAG 跟 fine-tuning 的差別，什麼時候該用哪個？", "type": "TECHNICAL", "followUp": "你實際做過 RAG 的產品嗎？遇到什麼坑？"},
+            {"q": "Walk me through the unit economics of an LLM feature. How do cost per inference and latency change what you build?", "type": "TECHNICAL", "lang": "en"},
+            {"q": "你怎麼設計一個 AI 系統的 evaluation harness？offline eval 跟 online eval 分別放什麼？", "type": "TECHNICAL"},
+            {"q": "How would you design guardrails for an agentic system that can take actions on a user's behalf?", "type": "TECHNICAL", "lang": "en"}
+          ]
+        },
+        {
+          "phase": "product_sense",
+          "questions": [
+            {"q": "一個 stakeholder 想在一個本來運作正常的功能上「加 AI」，你怎麼處理這個對話？", "type": "PRODUCT_SENSE", "followUp": "如果那個 stakeholder 是 CEO 呢？"},
+            {"q": "Design an AI-powered career coach product. What would you build first?", "type": "PRODUCT_SENSE", "lang": "en", "followUp": "How would you measure success in the first 90 days?"},
+            {"q": "我們上線了一個 AI tutor 功能，只有不到 10% 的用戶覺得很棒，大多數人覺得普通。你會怎麼做？", "type": "PRODUCT_SENSE", "followUp": "你會怎麼決定是優化現有功能還是砍掉重來？"},
+            {"q": "Pick an AI product you admire. What is the one design decision that made it work?", "type": "PRODUCT_SENSE", "lang": "en"},
+            {"q": "怎麼決定一個問題需不需要用 AI 來解？什麼時候 rule engine 就夠了？", "type": "PRODUCT_SENSE"}
+          ]
+        },
+        {
+          "phase": "metrics_analytical",
+          "questions": [
+            {"q": "Notification engagement 連續六週上升，但 time on site 持平或下降。你怎麼看？", "type": "METRICS"},
+            {"q": "How do AI product metrics differ from traditional engagement metrics?", "type": "METRICS", "lang": "en"},
+            {"q": "你上線了一個 AI assistant，北極星指標上升了，但你怎麼知道模型品質有沒有在悄悄下降？", "type": "METRICS", "followUp": "你會設什麼 alert 來提早發現？"},
+            {"q": "How would you measure whether a RAG system is actually working?", "type": "METRICS", "lang": "en"}
+          ]
+        },
+        {
+          "phase": "strategy",
+          "questions": [
+            {"q": "你是 Zoom 的 CPO，面對 Teams、Slack、Google Meet 的競爭，你的 AI 策略是什麼？", "type": "PRODUCT_SENSE"},
+            {"q": "Improve model accuracy by two points, or ship the current version a month sooner. How do you decide?", "type": "STRATEGY", "lang": "en"},
+            {"q": "如果你有一個 data scientist 但三個 AI feature 在排隊，你怎麼排優先順序？", "type": "PRODUCT_SENSE", "followUp": "如果三個的 stakeholder 都說自己是最緊急的呢？"}
+          ]
+        },
+        {
+          "phase": "responsible_ai",
+          "questions": [
+            {"q": "你的模型對 90% 的用戶表現很好，但對某個族群表現很差。你會怎麼做？時程多快？", "type": "RESPONSIBLE_AI"},
+            {"q": "Give me a real example where an ethics concern changed a product decision you made.", "type": "RESPONSIBLE_AI", "lang": "en"},
+            {"q": "怎麼在產品規格階段就把 fairness、privacy、transparency 建進去，而不是上線後才 audit？", "type": "RESPONSIBLE_AI"}
+          ]
+        },
+        {
+          "phase": "motivation_closing",
+          "questions": [
+            {"q": "為什麼想來我們公司？你覺得你能帶來什麼？", "type": "MOTIVATION"},
+            {"q": "Why are you looking to leave your current role?", "type": "MOTIVATION", "lang": "en"},
+            {"q": "你覺得自己最大的優點跟缺點是什麼？", "type": "SELF_ASSESS"},
+            {"q": "What's your expected compensation range?", "type": "NEGOTIATION", "lang": "en"},
+            {"q": "你有什麼問題想問我們的嗎？", "type": "REVERSE"},
+            {"q": "Do you have any questions for us?", "type": "REVERSE", "lang": "en"}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "realistic_60min",
+      "description": "模擬真實 60 分鐘面試，含寒暄、閒聊、開玩笑、轉場、壓力測試、估算、私人問題、技術問題等全情境",
+      "rounds": [
+        {
+          "phase": "opening",
+          "questions": [
+            {"q": "Hi! Can you hear me okay? Great, thanks for joining.", "type": "GREETING", "lang": "en"},
+            {"q": "嗨你好，我是 David，是今天面試你的主管。我們先閒聊一下再開始好了", "type": "GREETING"}
+          ]
+        },
+        {
+          "phase": "tech_check",
+          "questions": [
+            {"q": "等一下，你的畫面好像卡住了，聽得到嗎？", "type": "TECH_ISSUE"},
+            {"q": "Sorry, my audio cut out for a second. Can you hear me now?", "type": "TECH_ISSUE", "lang": "en"}
+          ]
+        },
+        {
+          "phase": "casual_warmup",
+          "questions": [
+            {"q": "你今天天氣怎樣？我這邊下大雨", "type": "CASUAL"},
+            {"q": "So where are you based? How's the weather there?", "type": "CASUAL", "lang": "en"},
+            {"q": "你平常有什麼興趣嗎？工作以外的", "type": "CASUAL"},
+            {"q": "哈哈好，那我們開始吧", "type": "TRANSITION"}
+          ]
+        },
+        {
+          "phase": "intro",
+          "questions": [
+            {"q": "好，那先自我介紹一下吧", "type": "INTRO", "followUp": "不錯不錯"},
+            {"q": "Walk me through your background.", "type": "INTRO", "lang": "en", "followUp": "Interesting, tell me more about that AI agent you built."}
+          ]
+        },
+        {
+          "phase": "behavioral_with_reactions",
+          "questions": [
+            {"q": "講一個你產品上線後出包的經驗", "type": "BEHAVIORAL", "followUp": "哇那很慘耶，後來怎麼處理的？"},
+            {"q": "有意思", "type": "REACT"},
+            {"q": "那你覺得你從那次學到最重要的一件事是什麼？", "type": "BEHAVIORAL"},
+            {"q": "了解了解", "type": "REACT"}
+          ]
+        },
+        {
+          "phase": "pushback_pressure",
+          "questions": [
+            {"q": "嗯…我不太同意耶。你剛剛說的那個做法聽起來太理想化了，實際上根本不可能那麼順利吧？", "type": "PUSHBACK"},
+            {"q": "I'm not convinced that would work at scale. What if the team disagreed?", "type": "PUSHBACK", "lang": "en"},
+            {"q": "真的嗎？那如果最後結果是失敗的呢？", "type": "PUSHBACK"}
+          ]
+        },
+        {
+          "phase": "technical_with_humor",
+          "questions": [
+            {"q": "如果使用者說你們的 AI 在亂講話，你第一步會做什麼？", "type": "TECHNICAL", "followUp": "哈哈對啊 hallucination 真的是大家的噩夢"},
+            {"q": "你剛剛說的那個可以再多解釋一下嗎？我沒聽太清楚", "type": "CLARIFY"},
+            {"q": "好，那換個方向", "type": "TRANSITION"}
+          ]
+        },
+        {
+          "phase": "estimation",
+          "questions": [
+            {"q": "你覺得台灣現在大概有多少個 AI PM？", "type": "ESTIMATION"},
+            {"q": "How would you estimate the number of daily active users for Gmail?", "type": "ESTIMATION", "lang": "en"},
+            {"q": "如果要量化這個市場的規模，你會怎麼估算？", "type": "ESTIMATION"}
+          ]
+        },
+        {
+          "phase": "hypothetical",
+          "questions": [
+            {"q": "假設你是 OpenAI 的 CPO，你會砍掉哪個產品線？", "type": "HYPOTHETICAL"},
+            {"q": "If you had unlimited budget but only 3 engineers, what would you build first?", "type": "HYPOTHETICAL", "lang": "en"},
+            {"q": "如果你能重新來過，你之前那個專案你會怎麼做不一樣？", "type": "HYPOTHETICAL"}
+          ]
+        },
+        {
+          "phase": "product_sense",
+          "questions": [
+            {"q": "一個 stakeholder 想在運作正常的功能上加 AI，你怎麼處理？", "type": "PRODUCT_SENSE", "followUp": "如果那個人是 CEO 呢？哈哈"},
+            {"q": "Nice approach. 那如果資源只有一個 DS 但三個 feature 排隊呢？", "type": "PRODUCT_SENSE"}
+          ]
+        },
+        {
+          "phase": "curveball",
+          "questions": [
+            {"q": "好，輕鬆一點。把這支筆賣給我。", "type": "CURVEBALL"},
+            {"q": "If you were an animal, what animal would you be and why?", "type": "CURVEBALL", "lang": "en"},
+            {"q": "用三個字形容你自己", "type": "CURVEBALL"}
+          ]
+        },
+        {
+          "phase": "casual_break",
+          "questions": [
+            {"q": "好我們休息一下，你要不要喝口水？", "type": "CASUAL"},
+            {"q": "話說你是怎麼接觸到 AI 這個領域的？純好奇", "type": "CASUAL"}
+          ]
+        },
+        {
+          "phase": "personal_boundary",
+          "questions": [
+            {"q": "你結婚了嗎？有小孩嗎？", "type": "PERSONAL"},
+            {"q": "How old are you, if you don't mind me asking?", "type": "PERSONAL", "lang": "en"}
+          ]
+        },
+        {
+          "phase": "timeline_logistics",
+          "questions": [
+            {"q": "你目前手上有其他 offer 嗎？", "type": "TIMELINE"},
+            {"q": "When would you be able to start if we move forward?", "type": "TIMELINE", "lang": "en"},
+            {"q": "你的 notice period 是多久？", "type": "TIMELINE"}
+          ]
+        },
+        {
+          "phase": "closing",
+          "questions": [
+            {"q": "好差不多了，你有什麼想問我的嗎？", "type": "REVERSE"},
+            {"q": "最後還有什麼你想補充的嗎？有沒有什麼我們沒聊到但你覺得很重要的？", "type": "CLOSING"},
+            {"q": "Anything else you'd like to add before we wrap up?", "type": "CLOSING", "lang": "en"},
+            {"q": "謝謝你今天的時間，祝你之後順利", "type": "GREETING"}
+          ]
+        }
+      ]
+    }
+  ]
+}

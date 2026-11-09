@@ -1,0 +1,23 @@
+We're looking for a Senior AI Product Manager to lead our AI-powered platform products. You'll own the product roadmap for our AI/ML features, work closely with engineering and data science teams, and drive 0-to-1 product initiatives.
+
+Responsibilities:
+- Define and execute the product strategy for AI-powered features
+- Collaborate with ML engineers and data scientists on model development and evaluation
+- Own the end-to-end product lifecycle from ideation to launch and iteration
+- Design evaluation frameworks for AI model quality and product metrics
+- Balance innovation velocity with responsible AI practices
+- Drive cross-functional alignment across engineering, design, data science, and business teams
+
+Requirements:
+- 5+ years of product management experience, with 3+ years on AI/ML products
+- Strong technical understanding of ML concepts (training, evaluation, deployment)
+- Experience shipping AI products at scale (millions of users)
+- Track record of 0-to-1 product launches
+- Excellent stakeholder management and communication skills
+- Experience with LLM/GenAI products preferred
+
+Nice to have:
+- Experience with search/recommendation systems
+- Background in NLP or computer vision
+- Experience with data platform or infrastructure products
+- Multi-language product experience

@@ -1,0 +1,712 @@
+#危機處理 #客戶留存 #領導力
+[專案] 57% 裁員風暴下的客戶零流失與營收逆風成長
+[情境] iKala 經歷 57% 大規模裁員（300→130 人），我從 AI Lab PM 被迫擴展到同時扛產品策略、銷售支援與夥伴整合。團隊人力驟降，150 位企業客戶面臨服務中斷風險。
+[行動] 建立跨部門緊急應變機制，重新梳理客戶優先順序。主動承接原本不屬於 PM 的工作：銷售簡報、客戶 QBR、合作夥伴技術對接。同時自建 3 套內部工具（Sales Pipeline 99.6% 報價匹配率、Amplitude Dashboard 追蹤 27,898 個 workspace、GA4 Attribution 分析）填補人力缺口。
+[結果] 150 位企業客戶零流失，MRR 逆勢成長 30%。Sales Pipeline 把 $1.39M 與 $24K 的報價落差從幾天排查縮短到秒級定位。
+[追問素材]
+- 決策點：為什麼自建工具而非買商業方案？→裁員後預算凍結，Amplitude/Mixpanel 年費 $50K+ 不可能批。選 Neon Serverless PG 因為免費 tier 夠用、冷啟動快。
+- 數字來源：99.6% 匹配率=Stripe API 1,133 筆×27 個月 vs CRM 報價逐筆自動比對，mismatch 4 筆手動查是時區問題。MRR 30% 成長=月度 Stripe dashboard 數字。
+- 困難：GA4 歸因謬誤發現初期被行銷團隊質疑——「你一個 PM 怎麼說我們的數據是錯的」。用 raw event 逐筆比對 last-click vs GA4 model attribution 才說服。
+- 角色：我獨立開發三套工具（前端+後端+數據），無工程師支援。業務團隊是使用者，行銷團隊是 GA4 工具的 stakeholder。
+- Timeline：2024-06 裁員→2024-07 Sales Pipeline 上線→2024-09 Amplitude Dashboard v1→2025-01 GA4 Attribution。每套 2-4 週。
+- 反事實：如果當初花錢買 Mixpanel，不會發現歸因謬誤——因為商業工具不會質疑 GA4 的 attribution model。自建反而是意外收穫。
+- Stakeholder：CEO 在 QBR 直接引用 Sales Pipeline 數據做決策，這是最強的「被用起來」信號。
+
+#技術決策 #成本優化 #數據架構
+[專案] 數據湖五階段演進：BQ→Trino/Iceberg→StarRocks
+[情境] KolRadar 平台近 500 萬 KOL、每季 746 GB Post 資料，BigQuery on-demand 月費飆到 $2,407 觸發 P0 事件。
+[行動] 主導五階段架構遷移。Phase 3 引入 Trino + Iceberg（Nessie catalog + Parquet/Snappy + GCS），設計 Auto-scaling 策略（基於 query count 和 CPU usage）。啟用 Alluxio Filesystem Cache，讀取時間減少 99%。Phase 5 評估 StarRocks（C++ 向量化引擎），Benchmark 查詢速度比 Trino 快 5.54 倍。
+[結果] BQ 月費 $1,000→Trino $466，成本砍 50%+。半年 IG Post（460 GB / 6,000 萬筆）+ JOIN 210 萬 Profile，30 分鐘內完成。ES→Iceberg 用 CTAS 暫存表策略從 2.03 小時降到 52 分鐘。
+[追問素材]
+- 決策點：為什麼選 Trino+Iceberg 不選 Snowflake/Databricks？→成本。Snowflake on-demand 估算月費 $3K+，Trino on GKE 自管 $466/月。開源生態讓我們掌控遷移節奏。
+- 數字來源：$2,407 月費=BQ on-demand billing dashboard 截圖。$466=GKE node pool cost + GCS storage。50%+ 成本砍=($2,407-$466)/$2,407=80.6% 實際更高。Benchmark 5.54x=StarRocks vs Trino 跑同 query set 取中位數。
+- 困難：Phase 3 Iceberg 遷移時 Nessie catalog 有 500 table 上限，差點要全部 workaround。ES→Iceberg 第一次跑 2.03 小時，用 CTAS 暫存表策略才壓到 52 分鐘。
+- 角色：我主導架構設計與遷移策略，DE team 2 人做實際 connector 開發，SRE 負責 GKE cluster 調整。
+- Timeline：2024-03 P0 事件→Phase 1-2（BQ 優化 2 週）→Phase 3（Trino/Iceberg 3 個月）→Phase 4（監控穩定 1 個月）→Phase 5（StarRocks 評估 2 週）。
+- 反事實：如果一開始就選 StarRocks 跳過 Trino，會少走彎路但缺 Iceberg 的 time-travel 和 schema evolution——這對我們的資料版控很重要。
+- Stakeholder：CTO 對 $8,142 StarRocks 投資猶豫（「值得嗎？」），我用 query 效能數據+工程師維運時間減少來說服。
+
+#AI研發 #0到1產品 #多智能體
+[專案] KOL Palette AI Agent 從 0 到 1，歷經 9 版迭代
+[情境] 需打造跨 7 語系、6 社群平台的 AI Agent 產品，帶領 20 人 AI 工程團隊。市場上無直接參考，從 RFC v1 到 Multi-Agent 上線花了 4 個月。
+[行動] 主導 9 次版本迭代，引導團隊從單一 Agent 演進到 Swarm/Selector/Supervisor 多智能體架構。導入 MCP 工具整合（本地+遠端 SSE）、Mem0 記憶系統（Short-term/Long-term/Entity Memory）、LLM-as-a-Judge 評估機制、LangFuse tracing。建立 Experiment Manager v1.0 做系統化 A/B 實驗。
+[結果] 平台功能採用率提升 20%+，成功管理跨國多語系模型上線。完成 2 個企業客戶交付。Stripe 整合上線「訂閱制」與「單次付費」雙軌商業模式。
+[追問素材]
+- 決策點：Swarm→Supervisor 因為 Swarm 模式在 7+ 工具時 routing 準確率從 92% 掉到 71%，Supervisor 集中決策+子 Agent 專精，routing 回到 95%。
+- 數字來源：功能採用率 20%+=Amplitude event tracking before/after，取上線後 30 天 vs 上線前 30 天的 feature engagement。2 企業客戶=Client B 和 Client C，各有獨立 API key 追蹤。
+- 困難：MCP SSE transport 在跨國部署時 timeout 頻繁（東南亞 latency 300ms+），被迫加 retry + exponential backoff。Mem0 Long-term memory 偶爾幻覺——讀出不存在的對話紀錄。
+- 角色：我主導架構決策和版本迭代方向，20 人 AI 團隊中 3 位 ML 做模型、2 位 BE 做 infra、我做 PM+系統設計+Experiment Manager。
+- Timeline：2025-04 RFC v1→2025-05 v2 Swarm→2025-06 v5 Supervisor→2025-08 Multi-Agent 上線。4 個月 9 版。
+- 反事實：如果用 LangChain 而非自建，初期會快但後期客製化會卡——我們需要控制 tool routing 邏輯，LangChain 的 abstraction 太厚。
+- Stakeholder：CEO 質疑「為什麼 4 個月還沒上線」——我用 Experiment Manager 數據說明每版改善幅度，證明不是在原地打轉。
+
+#跨部門協作 #PM-ML溝通 #不確定性管理
+[專案] AI Lab 120+ 次 Weekly Sync-up 的 PM-ML 翻譯層建立
+[情境] 入職 AI Lab 第三週參加 ML Weekly Sync-up，發現 PM 和 ML 工程師之間有根本性的語言鴻溝——不是技術複雜度，是時間粒度的認知差異（Sprint 線性 vs 實驗條件分支）。
+[行動] 建立四層翻譯機制：(1) 依研究階段問不同問題（POC 問風險、訓練問 baseline 距離、評估才問上線）。(2) 把 ML 指標翻譯成使用者體驗（「推理 387ms→138ms」→「搜尋快三倍，馬上看到結果」）。(3) 分離研究 milestone 與交付 ticket，讓研究 slip 不衝擊 Sprint。(4) 每月主動問技術債訊號。
+[結果] 兩年跑完 120+ 次 sync-up，團隊研究產出可見度大幅提升。TextAction-En 從 2024-10 到 2025-03 完整跑完一輪，空標發現讓 accuracy 提升 25%。
+[追問素材]
+- 決策點：為什麼建四層翻譯機制而非讓 ML 直接跟 PM 對齊？→試過，ML 講「F1 從 0.82 提到 0.89」PM 聽不懂價值，PM 講「下週要上」ML 覺得不合理。需要中間翻譯層。
+- 困難：TextAction-En 空標問題——ML 說「資料品質不好」不願修，我從 confusion matrix 找到空標佔 40%，證明不是模型問題是資料問題，accuracy 因此提升 25%。
+- 角色：我是唯一參加 ML Weekly 的 PM。ML Lead 負責技術決策，我負責翻譯成產品語言和排定上線順序。
+- Timeline：2024-10 TextAction-En 開始→2025-03 完成一輪。120+ 次 sync-up = 2 年每週一次。
+- 反事實：如果沒有翻譯層，會重複「PM 催→ML 趕→品質差→客訴→重做」的循環。
+- Stakeholder：ML Lead 一開始抗拒「PM 來管研究」，三個月後主動邀請我參加 research planning——因為我幫他們的工作被看見。
+
+#技術商業化 #NLP產品化
+[專案] TextSponsor 六語系商業化與 NLPFactory 資料標註產品線
+[情境] AI Lab 的 NLP 模型需要從研究成果轉化為可商業化的產品。TextSponsor（業配偵測）需支援 6 種語言，NLPFactory 需建立標準化資料標註工作流程。
+[行動] 主導 TextSponsor 六語系上線，建立 PM-ML 翻譯層確保模型品質符合商業需求。NLPFactory 設計標準化 pipeline：每個任務 100 筆人工驗收、topic diversity 採樣策略。VLM distillation 用大模型蒸餾小模型，成本減半。
+[結果] NLPFactory 單一任務 $500-2,000，速度比傳統標註快 3.5 倍。TextSponsor 六語系上線。企業交付：Client B F1 達 95%，Client C acceptance 72.4%。
+[追問素材]
+- 決策點：為什麼用 VLM distillation 而非直接部署大模型？→企業客戶（研華、國泰）要地端部署，雲端大模型 API 延遲高且每次推理 $0.01-0.03，蒸餾後小模型推理成本降 50%+，且可離線運行。六語系品質一致性→每語系獨立訓練+統一 F1 門檻（≥85%），低資源語系（th/vi）用跨語言 transfer learning 從 zh/en 模型遷移。
+- 數字來源：$500-2,000/任務=NLPFactory 實際報價範圍（100 筆人工標註×$5-20/筆）。3.5 倍=LLM 標註 pipeline 從「外包標註員 2 週」→「LLM 3 天+人工驗收 1 天」。Client B F1 95%=逐類別計算的 weighted macro F1，Client C 72.4%=客戶自定驗收標準（含主觀判斷的 acceptance score，門檻 70）。
+- 困難：Client C acceptance 72.4% 勉強通過但客戶不滿意——問題出在泰文業配偵測，Thai influencer 的業配揭露方式（hashtag 位置、語法）跟中英文完全不同，初始模型只有 58%。最後增加 300 筆 Thai-specific 標註資料才拉到通過。
+- 角色：我主導產品化策略和交付標準定義（F1/acceptance 雙軌評估）。ML team 3 人做模型訓練，外包標註團隊做初始標註，我做品質驗收的最終 sign-off。
+- Timeline：TextSponsor 六語系=每語系 3-4 週訓練+驗證，6 語系分批上線共 5 個月（部分語系平行）。NLPFactory 標準化 pipeline 建立 6 週。VLM distillation 8 週。
+- 反事實：如果不做 topic diversity 採樣——模型在熱門主題（美妝/3C）表現好但冷門主題（金融/醫療）崩潰。策略是每批 100 筆標註中強制涵蓋 ≥5 個不同主題類別，防止模型偏科。
+- Stakeholder：Client B 技術團隊對 F1 95% 很滿意但要求「不能更差」（no regression clause）→設計月度回歸測試。Client C PM 對 72.4% 不開心但老闆說「通過就好先上」→後來不續約，學到 acceptance score 通過≠客戶滿意。
+
+#搜尋引擎 #推薦系統 #ML產品
+[專案] Hermes 搜尋引擎與 Similar KOL 推薦系統三版迭代
+[情境] KolRadar 平台 475M KOL 資料，搜尋精準度不足、推薦系統用兩套 ID 系統（PlatformKOL vs MainKOL）導致品質問題。向量搜尋延遲 387ms 影響體驗。
+[行動] Hermes 搜尋：驗證 MiniLM-64d 取代 OpenAI embedding，推理時間 387→138ms。Similar KOL 三版迭代：V1 DeepWalk + Content-Based，V2 加 ALS 協同過濾，V3 全面重寫統一 ID 系統。設計五階段 fallback 策略（Content-Based+CF → Tag-Based → Pure CF → Random）。建立 Anubis A/B Testing 框架做切流驗證。
+[結果] 搜尋推理速度提升 64%、NDCG 改善 30%+。Similar KOL V3 解決 ID 雙軌問題，每週產出更新報告。A/B 框架讓模型上線有數據支撐。
+[追問素材]
+- 決策點：為什麼選 MiniLM-64d 取代 OpenAI embedding？→跑 benchmark 後 MiniLM NDCG 更高（+30%）且推理 387→138ms（快 64%）。OpenAI embedding 768d 維度太高，FAISS index 變大、每次 query latency 高。64d 在 475M KOL 的規模下 index 小 12 倍。DeepWalk 為什麼選→KOL 社群本質是 social graph（follow/mention/collab），DeepWalk 在圖上做 random walk 產生 node embedding，比純 content-based 多捕捉社群關係。
+- 數字來源：387→138ms=Hermes 搜尋 API p95 latency（Grafana dashboard 截圖）。NDCG 30%+=用人工標註的 200 組 query-KOL relevance set 做 offline evaluation。五階段 fallback 命中率：Content-Based+CF 72% → Tag-Based 15% → Pure CF 8% → Category 4% → Random 1%（剩下的是「真的找不到」）。
+- 困難：ID 雙軌問題——PlatformKOL 是各平台原生 ID（IG/YT/TikTok 各一個），MainKOL 是統一後的跨平台 ID。V1/V2 推薦結果混用兩套 ID，導致同一個 KOL 出現兩次或關聯斷裂。V3 全面重寫用 MainKOL 做唯一 key，遷移時用 mapping table 逐筆對應，發現 3.2% 的 mapping 有衝突（一個 MainKOL 對到多個 PlatformKOL），手動清理 15,000+ 筆。
+- 角色：我主導架構決策（選型 MiniLM、設計 fallback 策略、決定 V3 重寫）。ML team 2 人做 DeepWalk 訓練和 ALS 實作。我設計 Anubis A/B Testing 框架的切流邏輯（5%→20%→50%→100% 分階段放量）。
+- Timeline：V1（DeepWalk+Content-Based）2024-01→2024-03。V2（+ALS）2024-04→2024-06。V3（ID 統一重寫）2024-07→2024-10。Hermes MiniLM 切換 2024-05 用 2 週完成。
+- 反事實：如果不做 V3 重寫只修補 ID mapping——每次新平台接入都要加 workaround，技術債指數成長。V3 花了 4 個月但一次解決，之後新平台接入只要加一行 mapping rule。
+- Stakeholder：產品團隊對 V2→V3 重寫有阻力（「V2 又沒壞」），我用 A/B 數據證明 V3 NDCG 比 V2 高 18%+消除重複推薦問題。CTO 支持重寫但要求「不能影響線上服務」→用 shadow mode 先跑 2 週驗證再切換。
+
+#不確定性管理 #品質閘門 #系統韌性
+[專案] 62 起生產事故的系統性分析與品質閘門建立
+[情境] iKala Platform 記錄了 62 起生產事故，48% 是 P0。AI 系統的高吞吐量（每天 80K 爬蟲、180M 筆 General Tag 標註）放大了 DB/OOM/部署等弱點。模型錯誤沿依賴鏈傳遞（TextLangID 94.89% 準確率 = 1000 萬筆中 51 萬判錯→下游全部受影響）。
+[行動] 歸納八大根因模式，建立三種不確定性管理策略：(1) 接受+Fallback（Similar KOL 五階段遞降）、(2) 降低+品質閘門（TextAction 空標+25%、Reward model +10%、LLM-as-Judge 月度稽核）、(3) 隔離+避免傳遞（TextSell 前置過濾、Country Isolation 獨立 ES index）。導入 MLflow + Superset 指標監控。
+[結果] 月均事故從 3 起降到 0.7 起。2024 年 36 起（重構高峰）→2025 年 8 起→2026 年僅 2 起。建立 NLPFactory 100 筆人工驗收、A/B Testing 框架等系統化品質閘門。
+[追問素材]
+- 決策點：為什麼用三種策略而非統一標準？→不同 AI 模組的錯誤代價不同。Similar KOL 推薦錯=用戶看到不相關 KOL（低風險，用 fallback 降級）。TextLangID 判錯=下游 6 個模組全部吃到錯語言資料（高風險，用隔離策略切斷傳遞）。TextAction 精度差=客戶報告品質下降（中風險，用品質閘門攔截）。「品質不對稱問題」=production model 品質 70% 但資料庫已有 LLM 標的 95% 資料，低品質 predict 覆蓋高品質 LLM 標籤，越晚解決汙染越多。
+- 數字來源：62 起事故=兩年 Postmortem 文件逐筆統計。48% P0=30 起嚴重到影響線上服務或資料。月均 3→0.7=2024 年 36 起÷12=3.0，2026 年僅 2 起→月均 0.17。TextLangID 94.89%=10M 筆×5.11%=510K 判錯。TextAction 空標修正+25%=發現 confusion matrix 中空標佔 40%，修正後 accuracy 提升 25 個百分點。
+- 困難：閘門 vs 速度的平衡——NLPFactory 100 筆人工驗收加 2-3 天延遲，ML 工程師抱怨「我改一行 code 要等 3 天」。解法：分級閘門——P0 模型（TextLangID/GeneralTag）全量驗收，P2 模型（TextSell 等）自動化 benchmark 通過即放行。重試風暴 circuit breaker：爬蟲 80K/天，某次 API rate limit 觸發全部重試→Kafka lag 爆到 200K+→設計 exponential backoff + max 3 retries + circuit breaker（5 分鐘內失敗率>30% 則熔斷 15 分鐘）。
+- 角色：我主導事故模式分析和策略設計，SRE 2 人實作監控（Grafana 90+ dashboards），ML team 配合品質閘門流程調整。我寫 Postmortem 手冊定義事故分級和回應流程。
+- Timeline：事故分析 2024-01→2024-03（3 個月回溯兩年資料）。三策略逐步導入 2024-04→2024-08。MLflow+Superset 監控 2024-06 上線。2025 年起事故率明顯下降。
+- 反事實：如果不做系統性分析只修個案——每次事故都是 ad-hoc fix，根因沒解決。例如 DB OOM 事故修了 5 次，最後發現根因是 ES scroll context 配額沒做上限——系統性分析才看得到這種跨事故 pattern。
+- Stakeholder：CTO 對「62 起事故」的第一反應是「這數字能對外說嗎？」→我把重點放在「從 3/月降到 0.7/月」的改善幅度而非絕對數字。ML Lead 一開始抗拒品質閘門（「研究自由被限制」），後來某次 TextAction 在閘門被攔截避免了一次 P0，態度才轉變。
+
+#數據架構 #大規模系統
+[專案] 475M KOL 八層數據架構與 80K 日爬蟲系統
+[情境] KolRadar 需管理 475M KOL、80K 每日爬蟲任務、Kafka 500GB/week、ES 16.9TB 資料量，支撐 15+ ML 模型的數據需求。
+[行動] 設計八層數據架構（Ingestion→Storage→Processing→Serving→ML→Analytics→Orchestration→Monitoring）。ES index 按季度分區（每季 746 GB）、Kafka 做 real-time pipeline、Argo CronJob 排程維護（合併小檔、snapshot cleanup）。Nessie 做 Git-like catalog 版控。
+[結果] 穩定支撐 7 語系、6 平台的數據處理。GCS Iceberg 讀+寫+JOIN 30 分鐘內完成 460GB 資料。Filesystem Cache 啟用後重複查詢時間減少 99%。
+[追問素材]
+- 決策點：為什麼設計八層而非傳統 ETL 三層（extract/transform/load）？→475M KOL 規模下 ETL 三層無法處理「ML 模型需要即時特徵」和「分析需要歷史回溯」同時存在的需求。八層把 ML Serving、Analytics、Monitoring 獨立出來，每層可以獨立擴展。Nessie Git-like catalog 選型→支援 branch/merge 的版控，讓 ML 實驗可以在 branch 上跑不影響 production table。500 table 上限→按語系+平台分 namespace（tw.ig.post, jp.yt.post），用 prefix 管理而非建更多 table。
+- 數字來源：475M KOL=六平台（IG/YT/TikTok/FB/Twitter/Threads）七語系累計。80K/天=Argo CronJob 排程的 daily crawler task count（平均每 KOL 每 90 天爬一次，活躍 KOL 每 7 天）。Kafka 500GB/week=六平台 post 資料 ingestion throughput。ES 16.9TB=所有 index（KOL profile + post + tag + search）的總量。746GB/季=單一 post index 一季的資料量。Filesystem Cache 99%=重複查詢（同一份 Parquet scan）的 latency 從 45s→0.3s。
+- 困難：ES scroll context 是最大的資源瓶頸——總共 500 個 context，分配邏輯：爬蟲 180（最大用戶）、平台搜尋 60、ETL 36、Backfill 224。某次 Backfill 任務吃光 scroll context 導致平台搜尋 timeout 15 分鐘→設計 priority queue + preemption：平台搜尋永遠優先，Backfill 在低峰時段（UTC 0-6）才跑滿額度。Kafka retention 策略：raw topic 7 天 + compact topic 永久保留（用 key-based compaction 只留最新值）。
+- 角色：我設計八層架構和資源分配策略。DE team 2 人做 Kafka/ES/Iceberg 實作。SRE 負責 GKE cluster 和 Argo 排程。我主導季度容量規劃（預估下季資料量+infra 成本）。
+- Timeline：八層架構設計 2024-01→2024-02。ES 季度分區 2024-03。Kafka pipeline 重構 2024-04→2024-06。Nessie+Iceberg 2024-07→2024-09。持續迭代至 2026 年。
+- 反事實：如果不做季度分區——單一 ES index 超過 3TB 後 merge 速度崩潰，查詢延遲從 200ms 飆到 5s+。分區後每個 index ≤746GB，merge 和查詢都在可控範圍。如果不用 Nessie 用普通 Hive catalog——ML 實驗直接改 production table 風險太高，曾經有一次 ML 把 tag schema 改壞影響線上 2 小時。
+- Stakeholder：CTO 最關心成本——八層架構看起來複雜但每層用最適合的技術（ES 做搜尋、Kafka 做 streaming、Iceberg 做分析）比用一套 all-in-one 方案（如 Snowflake）便宜 5 倍。DE team 一開始覺得「太多東西要學」，我用漸進式導入（每季加一層）降低學習曲線。
+
+#AIAgent #企業交付 #顧問
+[專案] 大型壽險 AI Agent 八場景交付 + 產險五專案並行管理
+[情境] Aiworks 顧問期間，需為大型壽險客戶打造涵蓋 8 個核保場景的生成式 AI Agent，同時管理產險客戶 5 個並行專案（LINE 報價、AS400 整合、培訓等）。
+[行動] 作為核心樞紐協調三方（客戶端、OpenAI 原廠、內部技術團隊）。建立嚴謹的專案排程與交付標準。設計 AI 治理架構，串接 Compliance API 建立自動化管線。制定 Token 預算六層推導模型。
+[結果] 8 個核保場景 AI Agent 成功交付上線。產險 5 個並行專案同時推進。為金控 2,000 席 ChatGPT Enterprise 建立完整 AI 合規治理架構。
+[追問素材]
+- 決策點：為什麼三方協調而非只對接客戶？→OpenAI 原廠技術支援只接 partner 不接客戶直接，Aiworks 是中間樞紐。客戶的需求要翻譯成 OpenAI 能理解的技術語言，原廠的限制要翻譯成客戶能接受的方案。
+- 數字來源：8 個核保場景=新光人壽 Lighthouse 專案定義的場景數。5 個產險並行專案=和泰產險的 LINE 報價/AS400/培訓/流程優化/數據分析。2,000 席=富邦金控的實際席次。
+- 困難：壽險客戶剛被衛福部罰 60 萬（AI 裁罰），對 AI 極度謹慎。每個 Agent 場景都要過法遵+資安雙審。有一個核保場景因為涉及個資被暫停兩週，最後重新設計資料脫敏方案才通過。
+- 角色：我是三方協調的核心 PM——上游對 OpenAI 技術團隊（英文溝通）、平行對內部 ML/BE 團隊、下游對客戶 PM 和 IT。
+- Timeline：壽險 Lighthouse 2026-01→2026-08（8 個月）。產險 5 子專案 2026-03 起並行，各有不同交付日期。
+- 反事實：如果不設 Aiworks 中間層讓客戶直接對 OpenAI——語言障礙（客戶中文/原廠英文）、時差（台灣/美國 PST）、企業理解差距，三個都是障礙。
+- Stakeholder：新光 CEO 在 Lighthouse kick-off 親自出席，要求每月 report 進度。壓力很大但也代表有最高層支持。
+
+#跨部門協作 #數據治理 #金融合規
+[專案] 2,000 席 ChatGPT Enterprise AI 治理合規架構
+[情境] 大型金控客戶導入 2,000 席 ChatGPT Enterprise，需建立符合金融法規的權限與資產治理體系。多部門（安全/法規/IT/業務）需求衝突。
+[行動] 跨部門協調設計「AI 治理合規儀表板」（自動化監控 GPT 使用狀況）與「AI 資產管理平台」（管理 Custom GPT/Assistant/Project）。串接 Compliance API 建自動化管線，設計動態群組權限策略（角色覆寫模型控制）與 Token 預算模型。
+[結果] 2,000 席完整治理架構上線，實現自動化監控與預算控制。週報機制自動化產出，合規數據即時可視。
+[追問素材]
+- 決策點：為什麼用動態群組而非固定角色？→2,000 人跨 8 子公司，職能重疊（法遵+IT 可能同一人）。固定角色會爆炸性增長。用群組繼承+角色覆寫——基礎權限跟群組，特殊權限個別覆寫模型存取。
+- 數字來源：2,000 席=富邦金控實際人數。8 子公司=北富銀/富邦產/富邦壽/富邦投信等。週報機制=每週自動產出 usage report 送金控 IT 部門。
+- 困難：角色覆寫的 edge case——某人同時屬於「法遵部」（只能用 GPT-6.1 Terra）和「專案小組」（需要 GPT-6.1 Sol），應該取哪個？設計「高權限覆寫低權限」原則，但要留 audit trail。
+- 角色：我設計權限架構和覆寫邏輯。富邦 IT admin 負責實際群組設定。資安團隊審核權限矩陣。
+- Timeline：權限設計 2 週→IT 設定 1 週→驗證+修正 2 週→資安審核 1 週。
+- 反事實：如果不做覆寫、只用群組——子公司之間權限不同就要建 8 套群組結構。覆寫機制讓基礎結構統一，例外個別處理。
+- Stakeholder：金控 CISO 的關鍵問題：「如果某人離職，他建的 Custom GPT 怎麼辦？」→設計 SCIM 帳號停用+資產移轉流程。
+
+#失敗學習 #產品策略 #冷啟動
+[專案] 雷達之星 MCN 創作者生態系冷啟動
+[情境] 早期無既有資源，需從零建立 MCN 創作者生態系。初期個案招募策略完全失敗——創作者不信任平台、品牌不理解 MCN 價值。
+[行動] 從失敗中調整策略：(1) 建立 KOL 分級管理架構與標準化合約，降低信任門檻。(2) 數據驅動的配對機制，用平台數據說服品牌。(3) 設計階梯式合作方案（試投→短期→長約），降低雙方進入門檻。
+[結果] 成功冷啟動，招募 1,000+ 位創作者、20+ 品牌合作、合約總額 NT$500 萬+。
+[追問素材]
+- 決策點：為什麼用階梯式合作方案？→創作者和品牌雙邊都怕風險。創作者怕「平台抽成後沒比自己接好」，品牌怕「KOL 效果不如預期」。階梯式（試投 1 篇→短約 3 個月→長約 1 年）雙方用最低成本驗證。
+- 數字來源：1,000+ 創作者=平台註冊數（活躍約 300）。20+ 品牌=簽約品牌數。NT$500 萬+=累計合約總額（橫跨 8 個月）。分級管理用 4 維度：粉絲量級（Nano/Micro/Mid/Macro）、內容品質分（1-5 人工評分）、準時交付率、品牌回購率。
+- 困難：最大認知錯誤是以為「好的創作者自然會來」——實際上 cold outreach 100 封信回覆率 3%。後來改策略：先找 5 個種子創作者做成功案例，用案例再去拉人，回覆率升到 15%。
+- 角色：我負責 MCN 產品設計和合約架構。BD 做創作者招募和品牌對接。Marketing 做案例包裝。
+- Timeline：2023-01 啟動→2023-03 種子期（5 個創作者/3 個品牌）→2023-06 規模化（300+ 創作者/15 品牌）→2023-08 達到 NT$500 萬。
+- 反事實：如果不做分級管理——品牌配到不適合的 KOL，效果差→退單→平台信譽受損。分級讓品牌預期對齊：「Micro-KOL 適合深度轉換，Macro 適合曝光」。
+- Stakeholder：創作者最在意「分潤比例和結款速度」，品牌最在意「效果可預期」。兩邊需求互斥時（創作者要高分潤 vs 品牌要低成本），用 volume discount 解——品牌買多享折扣，但創作者分潤率不降。
+
+#自建工具 #數據分析 #效率提升
+[專案] 三套自建工具填補組織人力缺口
+[情境] 裁員後公司無力購買商業工具，但業務決策急需數據支援。Sales Pipeline 每月需人工比對 Stripe 與 CRM 報價、Amplitude 數據散落多個 workspace、GA4 歸因邏輯混亂。
+[行動] 自建三套工具：(1) Sales Pipeline：自動比對 Stripe 交易 vs CRM 報價，99.6% 匹配率。(2) Amplitude Dashboard v3：整合 27,898 個 workspace 數據，四庫 Neon 架構，事件重分類體系。(3) GA4 Attribution：揭露 Paid Social 名目 CVR 18.2% vs 實際 0.3% 歸因謬誤。
+[結果] Sales Pipeline 把 $1.39M vs $24K 落差從天級排查→秒級定位。Amplitude 讓 144M events 可視化分析。GA4 工具糾正了長期錯誤的行銷預算分配。
+[追問素材]
+- 決策點：Neon vs Supabase→Supabase 的 free tier 只有 500 MB storage + 2 GB bandwidth，Neon 有 0.5 GB storage 但 compute 按需計費更靈活。且 Neon serverless auto-suspend，不用就不扣錢。四庫分開是因為 Neon branching 不支援跨 project 查詢，乾脆按用途分——main（核心業務）、amplitude（事件數據）、ga4（歸因數據）、sales（Pipeline 數據）。
+- 數字來源：99.6% = 1,133 筆 Stripe 交易×27 個月，mismatch 4 筆（時區問題：UTC vs Asia/Taipei 跨日交易）。$1.39M vs $24K 落差=最大一筆 mismatch，CRM 手動輸入錯誤（少了一個零）。144M events = Amplitude 實際事件數。27,898 workspaces = Kolr 平台實際 workspace count。
+- 困難：GA4 歸因謬誤發現初期被行銷質疑。Paid Social 名目 CVR 18.2% vs 實際 0.3%——差 60 倍。原因是 GA4 把 Facebook 的 click-through 也算 conversion，但實際最終付費的只有 0.3%。用 raw event 逐筆比對 last-click vs model attribution 才說服。
+- 角色：我獨立開發三套工具——從需求分析到前後端到部署維運，全部自己來。沒有工程師支援。業務團隊是 Sales Pipeline 的日常使用者，行銷是 GA4 工具的 stakeholder。
+- Timeline：Sales Pipeline 2024-07 上線（2 週）→ Amplitude Dashboard v1 2024-09（3 週）→ v2 2025-01（4 週）→ v3 2025-06（6 週）→ GA4 Attribution 2025-01（2 週）。
+- 反事實：如果買 Amplitude 商業版——年費 $50K+ 在裁員後不可能核准。而且買了也不會發現 GA4 歸因謬誤，因為 Amplitude 不會去質疑另一套工具的數據。自建的意外收穫。
+- Stakeholder：CEO 直接用 Sales Pipeline 在 QBR 做決策——這是最強的「被用起來」信號。行銷主管看完 GA4 報告後把 Paid Social 預算砍 70%，改投 Content Marketing。
+
+#客戶管理 #Presales #B2B
+[專案] 10+ 跨產業 AI 導入顧問與 Presales 全流程
+[情境] Aiworks 負責金控、壽險、產險、半導體、證券監理等 10+ 產業客戶的 AI 導入。每個產業的痛點、合規要求、技術成熟度完全不同。
+[行動] 獨立主導 Presales 全流程：深度產業調研 → 痛點診斷 → 量身方案設計 → 專業簡報 + Live Demo → 精算報價（Audit/Asset 級距定價：Enterprise index 佔比遞減、T4 錨點、建置地板 45 萬）。
+[結果] 簽署多筆大型企業合約，建立可複製的 B2B 營運模式。客戶跨金融、半導體、保險、證券等產業。
+[追問素材]
+- 決策點：為什麼做 Presales 全流程而非分工？→Aiworks 初創期人力有限（3 人顧問+2 BD），每個人必須從提案→Demo→報價全流程。且顧問對產品理解最深，拆開會讓提案品質下降。
+- 數字來源：10+ 客戶=富邦金控/玉山銀行/新光人壽/和泰產險/全國電子/是方電訊/信義房屋/建興儲存/神達集團/半導體集團等（具名）。定價用 Enterprise index 佔比遞減：50-149 席 0%、150-299 席 10%、300-999 席 18%、1000+ 席 2%。建置地板 45 萬=最低建置費不管席次多少。
+- 困難：Live Demo 失敗過一次——在某保險客戶現場 Demo Compliance API Dashboard 時，API rate limit 觸發 429 error。即時切換到預錄影片版本，但客戶技術主管質疑「正式環境也會這樣嗎」。後來加了 API retry + cache 層，再也沒發生過。
+- 角色：我獨立負責 Presales 全流程：產業調研→痛點診斷→方案設計→簡報→Live Demo→報價。BD 負責客戶關係維護和合約簽署。
+- Timeline：一個完整 Presales cycle 約 4-8 週：產業調研 1 週→痛點訪談 1 週→方案設計 2 週→簡報+Demo 1 天→議價 1-3 週。
+- 反事實：如果每個產業都做客製方案——不可能 scale。核心框架（六階段導入+治理三件套）通用 70%，只有產業特定部分（金融的 Trust Portal、半導體的跨國多據點）客製。
+- Stakeholder：金融業最在意「資安合規」（Trust Portal 證據夠不夠），半導體最在意「跨國治理一致性」，零售最在意「快速 adoption」。三種產業的 buying trigger 完全不同，簡報要對症下藥。
+
+#技術決策 #ML模型演進
+[專案] General Tag LLM 化——從傳統 ML 到 LLM 線上標註的轉向決策
+[情境] General Tag 是 Datahub 核心標籤系統（2019 年起），從 fastText→BERT→GPT-3.5/4 標註訓練小模型。2025-11 面臨關鍵決策：production 模型品質遠低於 LLM，低品質預測覆蓋高品質資料形成「品質不對稱問題」，越晚解決累積的壞資料越多。
+[行動] 推動「直接用 LLM 做線上標註」的轉向決策。協調 GPU 硬體升級需求。設計月度 LLM-as-a-Judge 稽核機制。建立品質監控（MLflow + Superset）確保轉向不引入新問題。
+[結果] 成功從傳統 predict model 切換到 LLM 標註。LLM 標註成本較傳統 ML 降低 250 倍。品質不對稱問題從源頭解決。
+[追問素材]
+- 決策點：為什麼不繼續 GPT 標註→訓練小模型→部署？→「品質不對稱問題」——小模型 production 準確率約 75%，但它覆蓋 100% 資料；GPT 標註的高品質資料只覆蓋標註過的部分。時間越久，低品質預測覆蓋的面積越大，好的被壞的淹沒。直接用 LLM 做線上標註=100% 覆蓋 × 高品質。
+- 數字來源：傳統 ML 每次標註+訓練成本 $2,000-5,000，LLM 線上標註只要 $8-20/千筆（成本降 250x）。品質不對稱量化：假設 180M 筆 GeneralTag，production model 75% accuracy = 45M 筆錯誤標籤，這些錯誤會影響搜尋排序和推薦品質。
+- 困難：GPU 升級說服管理層——裁員期間要申請 $10K/月的 GPU 預算很敏感。我用「不升級的隱性成本」論述：每個月 45M 筆錯誤標籤→搜尋品質下降→客戶滿意度下降→流失。把 GPU 成本對比成「每月省下的潛在流失營收」。
+- 角色：我推動決策（寫 RFC 文件證明品質不對稱問題）、協調 GPU 需求、設計 LLM-as-a-Judge 月度稽核。ML team 做模型切換實作。
+- Timeline：2025-09 發現品質不對稱→2025-10 RFC 提案→2025-11 GPU 預算核准→2025-12 切換上線→2026-01 首次 LLM-as-Judge 稽核通過。
+- 反事實：如果繼續用小模型——2026 年底估計 80%+ 的 GeneralTag 是低品質預測覆蓋，搜尋品質會系統性劣化到用戶可感知的程度。
+- Stakeholder：ML Lead 支持切換（技術上合理），CTO 猶豫（成本），我用量化數據說服。最終「品質不對稱的成本 > GPU 的成本」論述勝出。
+
+#商業模式 #產品策略 #SaaS
+[專案] Aiworks 五大模組商業模式設計
+[情境] Aiworks 需建立可規模化的 AI 顧問服務商業模式，從單純接案轉型為產品化服務。
+[行動] 設計五大模組架構：授權導入（ChatGPT Enterprise/API 經銷）、Mission Control（Audit 治理 + Asset 資產管理，品牌傘策略）、Empower（企業培訓）、顧問陪跑、技術專案。Audit/Asset 採級距定價（Enterprise index 佔比遞減，T4 錨點，建置地板 45 萬）。
+[結果] 建立可複製的商業模式，130+ 客戶基礎。從顧問服務轉向產品化 SaaS，Mission Control 成為核心產品線。
+[追問素材]
+- 決策點：品牌傘策略→Audit 和 Asset 是兩個完全不同的產品（一個做治理「煞車」、一個做資產管理「油門」），但客戶認知負擔要低。放在 Mission Control 品牌傘下=「企業 AI 控制塔」，一個品牌解決治理+資產兩個痛點。分開賣客戶要評估兩次，合在一起只評估一次。
+- 數字來源：130+ 客戶基礎=Aiworks 從培訓+顧問累積的客戶名冊。五大模組=授權導入/Mission Control/Empower/顧問陪跑/技術專案。T4 錨點=1000-2999 席的定價區間，用來做報價心理錨定——先報 T4 再折回實際席次級距。
+- 困難：從顧問到產品的最大阻力是「人力搶奪」——工程師花時間做產品就不能做客製。2026 Q3 同時 6 家客戶交付+產品開發，工程團隊 4 人每人同時跑 2-3 項。解法：把客戶最常要的功能抽出來做成產品標準功能，減少重複客製。
+- 角色：我設計五大模組架構和定價體系。CEO 負責戰略決策，BD 做市場驗證。我同時是 Mission Control 的產品規格設計者。
+- Timeline：2026-03 模組架構設計→2026-05 定價體系完成→2026-07 Mission Control MVP→2026-09 產品上線→2026-10 首個產品合約簽署。
+- 反事實：如果不做五大模組，只做顧問——營收天花板就是「人數×時數×單價」，3 人團隊年營收上限約 $2,000 萬。產品化後理論上限是客戶數×授權費，scale 完全不同。
+- Stakeholder：CEO 想「顧問+產品雙引擎」但怕投入產品開發的 burn rate。我用「客製 60 天 vs 產品 10 天」說服——不產品化就永遠在賣人力。
+
+#SaaS定價 #產品策略 #數據驅動
+[專案] SaaS 定價三次迭代：從亂賣到公版三級制
+[情境] 2023 年 Kolr 定價混亂——純訂閱制不適合網紅行銷的間歇使用模式，業務各自報價，同類客戶價差達 4 倍。Top 10 客戶佔全月營收 79%，營收結構極度頭重腳輕。線上自助付費比例僅 0-4%。
+[行動] 用自建 Sales Pipeline 追蹤 27 個月、1,133 筆交易數據，量化定價問題。推動三次迭代：(1) 純訂閱制→Pay-as-you-go 解鎖制，降低進入門檻。(2) 識別亂賣期問題（客單價方差過大、Agency 黏著度天生低）。(3) 推動 2024-08 公版三級制（免費/付費/企業），用使用額度做分級控制。後續推 2-3 年長約策略鎖住大客。
+[結果] 公版定價月簽 78 筆（歷史最高）。客單價從 $48K 拉升至 $136K（×2.8）。ARPU 從 $3.0 萬成長到 $12.2 萬（×3.5）。營收結構從頭重腳輕轉向中腰客戶支撐。
+[追問素材]
+- 決策點：為什麼從純訂閱→解鎖制？→網紅行銷是「campaigns」不是「daily use」，客戶可能 Q4 大量用、Q1 不用。純訂閱=付了沒用就流失。解鎖制讓客戶「用多少付多少」，留存率提升但營收波動變大。最終用公版三級制（免費/付費/企業）平衡——付費門檻低（月訂閱），企業走長約鎖住。
+- 數字來源：78 筆月簽=公版上線首月歷史最高。客單價 $48K→$136K（×2.8）=27 個月追蹤數據中位數。ARPU $3.0→$12.2 萬（×3.5）=月營收÷月活躍付費公司。同類客戶價差 4 倍=亂賣期實際數據（同為 Agency，A 報 $30K，B 報 $120K）。
+- 困難：公版三級制的門檻怎麼定——用 Amplitude 事件分析找「自然斷裂點」：免費用戶平均每月搜尋 50 次、付費用戶平均 200 次、企業 800 次。門檻設在 100/500，剛好在兩個群體的中間。
+- 角色：我用 Sales Pipeline 數據分析驅動定價建議，產品團隊做定價頁面實作，業務團隊做客戶溝通和轉換。
+- Timeline：2023-03 純訂閱→2023-09 解鎖制 v1→2024-04 識別亂賣問題→2024-08 公版三級制→2025 長約策略。
+- 反事實：如果繼續亂賣不做公版——業務各自報價，新 BD 進來更亂。公版=統一遊戲規則，業務只能在公版上做折扣而非自由定價。
+- Stakeholder：業務團隊對公版最抗拒（「限制我的彈性」），但數據顯示亂賣期 churn 更高——因為價差大，客戶之間會比價，低價客戶續約時發現別人更便宜就走了。用數據說服。
+
+#SaaS指標 #數據分析 #商業洞察
+[專案] 活躍減兩成、營收增兩成——SaaS 成熟化悖論的數據解讀
+[情境] 2025 年 Kolr 活躍公司從 11,800 降到 9,300（-21.6%），事件量降到 3,320 萬（-20.4%），但營收從 $2,819 萬成長到 $3,350 萬（+18.8%）。表面看是「衰退中的假成長」。
+[行動] 用 27 個月追蹤數據深入分析。拆解發現：總活躍從 2,000 掉到 911，但付費活躍從 84 升到 224，付費比例從 4.2%→24.6%。免費用戶大量流失（試用不轉換、低付費到期不續約、海外未站穩），留下的人付更多、用更多功能、留更久。建立八維客戶健康評分（搜尋活躍 20%、漏斗深度 15%、搜尋品質 15% 等），從 144M 事件萃取 21 類行為指標。
+[結果] 證明這是 B2B SaaS 從「衝量」到「經營」的典型成熟化訊號而非衰退。健康評分系統覆蓋 464 家 CRM 客戶。業務可即時查看客戶健康狀況，提前準備續約策略。
+[追問素材]
+- 決策點：為什麼不把活躍下降當危機處理？→拆解後發現免費用戶流失 but 付費比例 4.2%→24.6%。活躍降是「低價值用戶離開」，不是核心用戶流失。如果按「衰退」處理，會投入資源拉回不付費的人。
+- 數字來源：11,800→9,300 活躍(-21.6%)=Amplitude monthly active companies。付費 84→224=Stripe active subscriptions。$2,819→$3,350 萬(+18.8%)=月度 Stripe revenue×12。144M events=Amplitude dashboard。八維健康評分：搜尋活躍 20%、漏斗深度 15%、搜尋品質 15%、使用頻率 15%、功能多樣性 10%、留存穩定 10%、互動深度 10%、付費層級 5%。
+- 困難：486 個 Amplitude 事件→21 類：一次搜尋意圖觸發 5-12 個事件（search_query→filter_apply→result_view→kol_click→...），不能直接加總。用 session-based dedup：同一 session 同一意圖只算一次，用 30 分鐘超時切 session。ECTR benchmark 不能直接平均——因為高搜尋量的 workspace 拉高整體 ECTR，但大部分 workspace 搜尋量低，用 median 更有代表性。
+- 角色：我設計健康評分體系和事件分類邏輯。DS 團隊做底層數據 pipeline，我定義指標和權重。
+- Timeline：2025-03 發現悖論→2025-04 建立八維評分→2025-06 覆蓋 464 家 CRM 客戶→2025-09 業務開始用健康評分做續約策略。
+- 反事實：如果按「衰退」處理去拉回免費用戶——會花行銷預算做 re-engagement campaign，ROI 極低（免費用戶 LTV 接近 0）。正確做法是接受自然淘汰、專注提高付費用戶 ARPU。
+- Stakeholder：CEO 一開始看到活躍-21% 非常緊張。我用「付費比例 4.2%→24.6%」和「ARPU ×3.5」兩個數字說明這是 B2B SaaS 成熟化信號。CEO 後來在 Board meeting 引用這個分析。
+
+#客戶流失 #預警系統 #風險管理
+[專案] 客戶流失預警：從 $344 萬到 $2,185 萬的風險膨脹追蹤
+[情境] 2024 年初 Kolr 僅 4 家客戶被標記流失風險（$344 萬）。到 2026 年 2 月膨脹到 98 家、$2,185 萬——20 倍。更致命的發現：一家健康分 72（綠燈）的客戶，三個月內急墜到 4 分然後流失。「綠燈客戶也會死」。
+[行動] 建立三層預警機制：(1) 行為基線：用客戶自己前三個月平均值作基線，跌破 50% 標 warning、跌破 30% 標 critical（取代固定門檻——不同規模客戶「正常」不同）。(2) 結構性分析：2024 年衝量期大量低 Tier 短約客戶進入，一年後集中觸發紅燈。(3) 風險+獲客剪刀差監控：風險在擴張（$344→$2,185 萬），獲客在收縮（月新付費 32→19 家），兩條線越來越像剪刀。
+[結果] 預警系統從「事後統計」升級為「提前三個月」識別風險。健康分+風險營收雙維度追蹤覆蓋所有付費客戶。業務可按合約到期日排序+健康分篩選，提前準備續約話術。
+[追問素材]
+- 決策點：為什麼用「客戶自己的基線」而非固定門檻？→大客戶（企業版 $500K/年）和小客戶（Team $30K/年）的「正常」使用量差 10 倍。固定門檻會讓大客戶永遠綠燈、小客戶永遠紅燈。用前三個月平均值做基線，跌破 50% warning / 30% critical。
+- 數字來源：$344 萬→$2,185 萬(20×)=風險客戶加總 ARR。98 家=紅燈客戶數。健康分 72→4 的案例=某 Agency 客戶，決策者離職後使用量急墜。32→19 家=月新付費客戶數趨勢。
+- 困難：健康分 72 崩到 4——八維評分中「搜尋活躍」和「使用頻率」在第一個月就掉了，但「付費層級」和「留存穩定」還撐著（因為合約還在）。分數加權後看起來還好。三個月後合約到期不續約→全部歸零。教訓：要加「使用量斜率」指標，不只看絕對值。
+- 角色：我設計預警系統邏輯和健康分計算。CS 團隊負責執行預警後的客戶挽回。業務主管用系統排續約優先級。
+- Timeline：2024-01 建立初版（4 家風險）→2025-06 膨脹到 45 家→2026-02 98 家/$2,185 萬→2026-03 突降（大客戶季度續約完成）。
+- 反事實：如果沒有預警系統——業務只靠「感覺」判斷誰要走，通常到合約到期前 2 週才發現。有預警後提前 3 個月識別，CS 有時間介入。
+- Stakeholder：業務主管最在意「排序」——98 家紅燈客戶不可能全救，要按「營收×可挽回機率」排序。CS 最在意「為什麼變紅」——需要看到哪個維度掉了才能對症下藥。
+
+#企業定價 #Token預算 #金融合規
+[專案] Token 預算六層推導模型——為 2,000 席金控客戶精算 AI 成本
+[情境] 大型金控導入 ChatGPT Enterprise 2,000 席，需估算各職能的 Token 配額與年度預算。OpenAI 的 credit 定價變動頻繁（GPT-5.5→GPT-6 世代切換），客戶需要可驗證的推導邏輯。
+[行動] 設計六層推導模型（Layer 0-5）：L0 功能情境→L1 token 消耗→L2 credit 轉換→L3 使用頻率→L4 職能配額→L5 年度預算。跑 100 組實驗（20 TC × 5 runs）實測 Cache 命中率 61-96%。GPT-6 世代更新時用比率法推估，Heavy 用戶月消耗從~9,800→~3,058 credits（-69%）。設計 Pool 驗算確認 500 cr/seat 在保守~基準分布充足。
+[結果] 交付三張決策表格（By 功能情境 / By 職能配額 / By 使用程度年度預算）。客戶可依表決定 credit 方案、各職能配多少額度。模型經 10 項邏輯稽核全數修正通過。
+[追問素材]
+- 決策點：為什麼不用 OpenAI 建議的 500 cr/seat/month？→OpenAI 的建議是通用值，不區分職能。金控有法遵（大量文件分析）、工程（Codex heavy）、一般行政（偶爾問問）三種用量模式，差距可達 10 倍。六層推導模型讓每個職能有自己的配額。
+- 數字來源：100 組實驗=20 個 Test Case × 5 runs per TC。Cache 命中率 61-96%=不同 TC 差異大（重複性高的 TC 命中率高）。GPT-6 Heavy 月消耗 ~9,800→~3,058 credits(-69%)=新模型效率提升+pricing 變化的比率法推估。Pool 驗算=500 cr/seat × 2,000 seats = 1M cr/month，在保守~基準分布下充足。
+- 困難：Cache 命中率 61-96% 差距大——不同 TC 性質不同。解法：按職能群組加權（法遵 TC 多、工程 TC 少），取加權平均。GPT-6 世代不重跑實驗因為 GPT-6 API 尚未 GA，只能用比率法從 GPT-5.5 數據外推。
+- 角色：我設計六層模型框架和實驗方案。工程師跑 100 組實驗收集 raw data。我做分析和交付三張決策表格。
+- Timeline：2026-05 需求確認→2026-06 實驗設計+100 組跑完→2026-07 六層模型交付→2026-08 客戶採用。
+- 反事實：如果直接用 500 cr/seat——法遵部門第一個月就超標（實際需要 ~800 cr/seat），工程部門 Codex 用量更高。統一配額會讓資安覺得「管控不足」。
+- Stakeholder：金控 CFO 最在意「年度預算準不準」，IT 最在意「超標怎麼辦」，資安最在意「能不能分部門管控」。三張決策表格分別對應三個 persona。
+
+#產品定價 #差別取價 #B2B策略
+[專案] Audit/Asset 級距定價——從試算表到差別取價的產品化定價體系
+[情境] Mission Control 兩產品（Audit 治理 + Asset 資產管理）需要可規模化的定價。不同企業席次從 50 到 3,000+，定價不能一刀切。同時要做差別取價——人天成本是內部計算基礎，但客戶文件絕不能出現人天單價。
+[行動] 設計連續遞增定價模型：以 ChatGPT Enterprise $35/user/month 為 index，按每 100 席不同佔比累加（50-149 席 0%→300-999 席 18%→1000+ 席 2%）。Audit 走買斷制，Asset 走年費制。建置地板 45 萬。報價文件重構：刪除人天單價表和建置明細，合併為「軟體費用（一次性，含建置部署）」。設計 EA 條款（主動升級 + 年度核算 True-up）。
+[結果] 五級距定價表上線，首年合計從 T1 78 萬到 T4 322 萬（Audit）。簡報、報價單、試算表三套文件完整對齊。差別取價策略讓每個客戶看到的都是合併總價。
+[追問素材]
+- 決策點：用 ChatGPT Enterprise $35/user/month 做 index→因為客戶已經在付這個價格，Audit 產品的定價可以用「每 user 再加 X% 治理費」的方式計算，心理上容易接受。佔比遞減=規模越大邊際成本越低，但不能完全反映（不然大客戶太便宜）。
+- 數字來源：50-149 席 0%、150-299 席 10%、300-999 席 18%、1000+ 席 2%=每 100 席一個累加級距。T4(1000-2999 席)首年 Audit 合計 $322 萬。建置地板 45 萬=不管席次多少，最低建置費。Audit 買斷 vs Asset 年費——Audit 是基礎設施（裝一次）、Asset 是持續服務（持續掃描）。
+- 困難：差別取價的隱藏——人天成本是內部計算基礎但客戶文件絕不能出現。有次 BD 不小心把含人天單價的試算表寄給客戶，客戶質疑「為什麼人天 $45K/天這麼貴」。緊急回收文件，重新設計報價文件結構：合併為「軟體費用（一次性，含建置部署）」。
+- 角色：我設計定價模型和報價文件結構。BD 負責客戶報價。CEO 審核最終價格。
+- Timeline：2026-06 定價模型設計→2026-07 試算表+簡報+報價單三套對齊→2026-08 首個報價送出（富邦金控）。
+- 反事實：如果 Audit 也做年費制——客戶會質疑「買斷的東西為什麼每年還要付錢」。Audit 是部署在客戶環境的 Docker 容器，物理上「在你那裡」，買斷符合認知。Asset 的持續掃描需要更新規則庫，年費合理。
+- Stakeholder：客戶採購最在意「單價怎麼算」——報價必須看起來簡單（一個總價）但經得起拆解。IT 最在意「建置費包什麼」——含部署+設定+驗證+1個月技術支援。
+
+#Legacy系統 #RPA #企業導入
+[專案] 和泰產險 AS400 綠屏打單 RPA 自動化
+[情境] 產險客戶核保人員每天在 30 年歷史的 AS400 綠屏系統手動 key in 雇主責任險保單。四種保單類型（專案新單 60-70%、專案續保、一般新單、一般續保），條款與附件範本組合極複雜，分支邏輯多。
+[行動] 主導四步流程設計：紙本要保書 PDF → OMNIA 地端 OCR/LLM 辨識（準確率 80%→90%）→ UiPath RPA 在 AS400 Terminal 自動 key-in → OMS 列印。AS400 是 Terminal 形式不能指定 UI 元素，只能靠鍵盤導航（F3/F4/F5/Ctrl/Tab）。解決條款 F4 查詢、附件範本連按兩次 Ctrl、全形字前空半格等眉角。
+[結果] 專案類新單 RPA 開發完成，從手動 30 分鐘/單→自動化處理。四種保單類型依序上線。Ray 處長定義為年度必完成目標。
+[追問素材]
+- 決策點：UiPath 而非 Playwright→AS400 是 Terminal Emulator（TN3270），不是 web browser。Playwright 只能操作 web DOM，Terminal 沒有 DOM。UiPath 有 Terminal Activities 可以直接送鍵盤指令（F3/F4/F5/Ctrl/Tab）。另外客戶已有 UiPath 企業授權。
+- 數字來源：30 分鐘/單=核保人員手動 key-in 一張雇主責任險保單的平均時間。4 種保單：專案新單 60-70%（主力）、專案續保、一般新單、一般續保。OMNIA OCR 準確率 80%→90%=迭代調整後。
+- 困難：AS400 Terminal RPA 最大的坑——(1) 不能指定 UI 元素，只能靠游標座標+鍵盤導航，畫面稍微改排版就全壞。(2) 條款 F4 查詢：按 F4 開子視窗搜條款，但回傳值的位置不固定。(3) 附件範本要連按兩次 Ctrl 才生效（undocumented behavior）。(4) 全形字前要空半格否則系統截斷。(5) 每季密碼重設→bot credential 要同步更新，用 UiPath Orchestrator 的 Credential Store 集中管理。
+- 角色：我做流程設計和技術驗證（確認 UiPath Terminal Activity 可行），RPA 開發者做 bot 實作，產險客戶 IT 負責 AS400 環境存取權限。
+- Timeline：2026-04 流程盤點→2026-05 OCR+LLM 模組→2026-06 RPA 專案新單開發→2026-07 測試→2026-08 上線。
+- 反事實：如果不做 RPA 自動化——核保人員繼續手動打單，30 分鐘/單×每天 20-30 單=10-15 小時/天。人力成本無法 scale，旺季要加班。
+- Stakeholder：Ray 處長（客戶方）定義為年度必完成目標——壓力來自高層要求數位轉型 KPI。核保人員一開始擔心「RPA 會取代我的工作」，定位成「把無聊的 key-in 自動化，讓你專注在核保判斷」才化解。
+
+#Voice Agent #提案設計 #AI落地
+[專案] 壽險 Voice Agent 合作提案——從 Eval 框架到品質驗證機制
+[情境] 大型壽險客戶在核保 AI Agent（Lighthouse Project）基礎上想延伸做 Voice Agent。OpenAI 原廠、客戶、Aiworks 三方合作。但客戶剛發生 AI 裁罰事件（衛福部罰 60 萬），對 AI 落地極度謹慎。
+[行動] 設計兩軌提案：方案 A 80h/NT$800K（純技術顧問，交付可上線 Agent）、方案 B 200h/NT$2M（加品質驗證機制建置：案例集題本、回歸驗證、方法移轉）。關鍵用語決策：「Eval 導入」改為「品質驗證機制建置」——因為客戶聽到 Eval 會聯想到考核，不是技術評估。設計四階段生命週期（啟動→開發→驗證→營運）。
+[結果] 提案通過 CEO 審核定稿。方案 B 的品質驗證機制成為差異化賣點——不只交付 Agent，而是交付「持續驗證與優化的能力」。
+[追問素材]
+- 決策點：「Eval」→「品質驗證機制建置」→客戶聽到 Eval 聯想到「考核、被打分數」——壽險公司剛被裁罰，任何有「檢查」語意的詞都讓客戶緊張。改為「品質驗證機制」=我們幫你建一套工具確保 Agent 品質，不是來考核你。
+- 數字來源：方案 A 80h/NT$800K=技術顧問時薪 $10K×80h。方案 B 200h/NT$2M=含品質驗證機制建置。時薪 $15K→$10K=因為 200 小時量大，給 volume discount。Scoping 不獨立收費=2 小時 scoping 當投資，證明我們理解需求後客戶更容易買 200h 大包。
+- 困難：客戶剛發生 AI 裁罰（衛福部罰 60 萬），對 Voice Agent 落地極度謹慎。每個場景都要「先驗證品質再上線」。四階段生命週期：啟動（需求確認+場景定義）→開發（Agent 建置+測試案例）→驗證（案例集題本+回歸測試+品質報告）→營運（持續監控+版本更新）。方案 B 的差異化=交付「持續驗證的能力」不只是 Agent。
+- 角色：我設計提案架構和定價。BD 負責客戶關係。OpenAI 原廠提供 Voice Agent 技術支援。三方合作模式。
+- Timeline：提案設計 2 週→內部 review 1 週→CEO 審核定稿→客戶簡報。
+- 反事實：如果只報方案 A（純技術顧問）——交付完 Agent 就結束，客戶自己沒能力驗證品質，上線出問題還是找我們。方案 B 把「驗證能力」也移轉，客戶可以自主維運。
+- Stakeholder：客戶 CEO 看重「風險可控」（裁罰陰影），CTO 看重「技術可行」，PM 看重「交付明確」。提案要同時對三個人說話。
+
+#通路策略 #合作夥伴 #市場變化
+[專案] OpenAI Partner 通路獨佔到 AWS 直購開放的策略轉型
+[情境] Aiworks 是台灣唯一 OpenAI Advanced Partner（Services Partner），企業買 ChatGPT Enterprise 必須透過 Aiworks 對接原廠。但 2026-04 Azure 獨家託管權到期，OpenAI 登上 Amazon Bedrock，AWS 與 OpenAI 簽 $38B 七年合約。2026-12 起台灣企業可在 AWS Marketplace 直購——通路壁壘即將消失。
+[行動] 推動從「賣授權」轉向「賣服務」：強化 Mission Control 產品線（治理+資產管理），建立顧問陪跑的持續性收入。同時佈局 AWS CPPO 代銷資格。設計五大模組覆蓋企業 AI 完整生命週期，確保每個階段都有角色。
+[結果] 公司從「通路商」重新定位為「AI Operating System 提供者」。130+ 客戶基礎中，越來越多是產品+顧問雙引擎模式而非單純授權導入。
+[追問素材]
+- 決策點：為什麼從「賣授權」轉向「賣服務」？→通路獨佔 2026-12 到期後，AWS Marketplace 直購開放。企業可以不透過 Aiworks 買 ChatGPT Enterprise。唯一不被取代的價值是「治理+賦能」——買工具容易，用好工具需要顧問。
+- 數字來源：$38B 7 年=AWS 與 OpenAI 公開合約金額。2026-12=AWS Marketplace 開放時間。130+ 客戶基礎=Aiworks 從培訓+顧問累積。CPPO（Channel Partner Private Offer）=透過 AWS 通路報價，佣金 10-15%。
+- 困難：內部有人主張「繼續靠通路吃」不需轉型——短期收入確實還在。我用 scenario planning：通路收入 2027 預估掉 40-60%（企業轉 AWS 直購），但治理+賦能服務收入可以從 $500 萬成長到 $2,000 萬（每家客戶年費×客戶數）。
+- 角色：我做市場分析和戰略建議，CEO 做最終決策。我同時設計五大模組架構作為轉型路線圖。
+- Timeline：2026-04 Azure 獨家到期→2026-06 開始規劃轉型→2026-09 五大模組架構定稿→2026-12 AWS 開放→2027 轉型執行。
+- 反事實：如果不轉型，繼續當 reseller——2027 通路利潤被壓縮，Aiworks 變成「幫 AWS 做 onboarding 的外包」。轉向產品+服務才能建立自己的 moat。
+- Stakeholder：CEO 對放棄通路收入有猶豫（「這是我們最穩定的收入」），用「通路收入 ≠ 永久收入」的邏輯說服——Azure 獨家就是前例，獨佔早晚會消失。
+
+#企業B2B #AI交付 #品質標準
+[專案] AI Lab 首次企業 B2B 交付——研華工業文件解析 + 國泰健康 LINE Bot
+[情境] AI Lab 過去產出都是內部服務（TextSponsor/Similar KOL/General Tag）。研華和國泰是第一次直接面對外部客戶，需建立交付 SOP、評估標準和成本基準。
+[行動] 研華：Phase 1 用 MinerU 做 PDF 解析（F1 95%），Phase 2 整合 VLM 處理非結構化段落。單文件成本 $0.03 美元。國泰：LINE 聊天機器人，40925 Agent 架構首次實戰，acceptance score 72.4 分（門檻 70）通過驗收。建立 F1 score + acceptance score 雙軌評估標準。
+[結果] 研華順利結案續約。國泰通過驗收但不續約——學到「通過品質閘門 ≠ 客戶願意繼續」。建立了企業 API 交付的 SOP 和成本估算基準，為後續客戶報價提供參考。
+[追問素材]
+- 決策點：為什麼選 MinerU 做 PDF 解析？→研華的工業文件有大量表格+流程圖+非結構化段落。MinerU 是開源 PDF 解析工具，對表格的 F1 達 95%。但對非結構化段落只有 71%——因為工業文件的排版非標準。Phase 2 加 VLM 處理非結構化部分。
+- 數字來源：F1 95% = 表格解析子任務。71% = 非結構化段落。$0.03/文件 = API call cost（GPT-4o vision 做 VLM fallback）。acceptance 72.4 = 國泰用自訂評分量表（0-100），70 是門檻。
+- 困難：國泰 acceptance 72.4 通過了但不續約——核心問題是「用戶不用」。LINE Bot 上線後 DAU 只有 30 人（目標 500），因為員工已經有慣用的內部系統。通過品質閘門≠產品 market fit。學到：B2B 交付不只要技術達標，還要驗證「有人會用」。
+- 角色：我做專案管理和品質標準設計。ML 團隊做模型開發。研華和國泰各有對口 PM。
+- Timeline：研華 2025-06→2025-09（3 個月，Phase 1+2）。國泰 2025-08→2025-11（3 個月，上線+觀察）。
+- 反事實：如果不建立雙軌評估標準（F1+acceptance）——研華只看 F1 會覺得完美，但實際使用體驗可能很差。國泰只看 acceptance 通過就以為成功，但 DAU 30 說明沒人用。兩個指標互補。
+- Stakeholder：研華技術主管重視「準確率數字」（F1），國泰業務主管重視「員工真的有用嗎」（adoption）。兩家客戶的 success criteria 完全不同。
+
+#產品演進 #SaaS #全球化
+[專案] SaaS 產品七年演進——從內部工具到全球化 AI 平台
+[情境] KolRadar（現 Kolr）從 2019 年 iKala 內部 IMS 到 2026 年覆蓋 8 個市場的 AI 平台。歷經四次定位翻轉、三次計價重寫，累積 138 個 Sprint、10,301 個 feature ticket。
+[行動] 關鍵轉折點：(1) 2020 從內部工具→B2B MVP，用既有系統包裝而非重寫。(2) 2023 AI Search 上線成為 Inflection Point。(3) 2024 白牌模式嘗試。(4) 2026 Agent 化。三次定價重寫：Seat-based 年訂閱→Usage-based 解鎖額度→分區定價（TW/JP/International）。全球化：日本用日圓、東南亞用美元。
+[結果] 七年從零到 27,898 個 workspace、144M 事件量。成功從「網紅資料庫」轉型為「AI 驅動的行銷情報平台」。
+[追問素材]
+- 決策點：四次定位翻轉——(1) 2019-2020 內部 IMS→B2B MVP（用既有系統包裝不重寫，搶速度）。(2) 2021-2022 數據庫工具→行銷情報平台（加入 Campaign 管理）。(3) 2023 AI Search 上線→AI-driven platform（GPT 驅動自然語言搜尋，DAU +40%）。(4) 2024 白牌嘗試→2026 Agent 化（最終決定不做白牌，因為維護成本太高）。
+- 數字來源：27,898 workspaces=Amplitude 追蹤的唯一 workspace 數。144M events=Amplitude 總事件量。138 Sprints=JIRA 紀錄。10,301 feature tickets=JIRA ticket count。
+- 困難：白牌模式失敗原因——每個白牌客戶要獨立部署、客製 branding、獨立維護。3 個白牌客戶的維護成本=5 個正常客戶。且白牌客戶的 end-user 問題回報到我們，但品牌是客戶的，user 不知道找誰。責任邊界模糊。
+- 角色：我從 2024 年開始主導產品策略，之前是 AI Lab PM 間接參與。七年跨了 3 任 PM（我是第二任），定價三次重寫我主導了後兩次。
+- Timeline：2019 內部 IMS→2020 B2B MVP→2021 全球化（日本）→2023 AI Search→2024 白牌+公版定價→2025 成熟化→2026 Agent 化。
+- 反事實：如果 2020 選擇重寫而非包裝既有系統——可能多花 6 個月，但日本市場 timing 是 2021，延遲會錯過。「夠好就上」的策略讓我們搶到日本首批客戶。
+- Stakeholder：日本客戶最在意「日圓計價+日語介面+在地客服」。東南亞客戶最在意「價格低」。兩個市場的 GTM 策略完全不同。
+
+#VLM #模型訓練 #知識蒸餾
+[專案] VLM 蒸餾實戰——Qwen3-VL-4B 台灣版完整訓練
+[情境] 企業交付需要地端部署的視覺語言模型，但雲端大模型太貴、開源模型不夠好。需要用大模型蒸餾出效能接近但可地端跑的小模型。
+[行動] 選定 Qwen3-VL-4B 作為基底模型，用 Claude Opus 做 teacher model 產生高品質標註資料。設計 GRPO（Group Relative Policy Optimization）強化學習流程。VLM distillation pipeline：大模型標註 → 品質篩選 → fine-tune 小模型 → 評估 → 迭代。同步進行 Qwen3.5-27B × Claude Opus 的推理蒸餾。
+[結果] 蒸餾後的 4B 模型在目標任務上接近大模型品質，推理成本降低一個數量級。完整訓練記錄可復現。為企業地端部署方案提供可行路徑。
+[追問素材]
+- 決策點：Qwen 而非 LLaMA→(1) Qwen3-VL 系列是目前開源 VLM 裡中文表現最好的（繁中文件理解 accuracy 比 LLaMA 3.2 Vision 高 15%+）。(2) 4B 參數量適中——能在消費級 GPU（RTX 4090, 24GB VRAM）跑推理。(3) 商業授權 Apache 2.0，企業可自由部署。
+- 數字來源：4B 參數=Qwen3-VL-4B 模型大小。RTX 4090 $1,600=消費級 GPU 市價。推理成本降 10x=雲端大模型 $0.03/doc vs 地端 4B ~$0.003/doc。蒸餾品質保留率 ~90-95% 取決於任務類型。
+- 困難：GRPO vs RLHF——GRPO（Group Relative Policy Optimization）不需要獨立 reward model，用同組輸出的相對排名做優化。省掉 reward model 訓練成本。但 GRPO 對 batch size 敏感，太小效果差。最終用 batch=32 + learning rate 1e-5 找到 sweet spot。推理蒸餾 Qwen3.5-27B × Claude Opus 另一條線——27B 品質更接近 teacher 但需 A100。
+- 角色：我做技術選型評估和專案管理。ML engineer 做實際訓練和微調。我設計評估指標和品質門檻。
+- Timeline：2026-02 技術選型→2026-03 數據準備→2026-04 蒸餾訓練→2026-05 評估+迭代→2026-06 交付可部署模型。
+- 反事實：如果選 70B 模型——品質更好但需要 A100×2（$20K+），企業地端部署成本太高。4B 在 RTX 4090 上跑=企業可以用既有硬體。
+- Stakeholder：企業 IT 最在意「需要什麼硬體」——4B on RTX 4090 是可接受的。ML 團隊最在意「品質掉多少」——90-95% 保留率可接受。管理層最在意「什麼時候能賣」——蒸餾完就能打包進 Mission Control Air-gapped 方案。
+
+#規模培訓 #AI賦能 #企業轉型
+[專案] 20,000+ 學員 AI 企業培訓——從通識到 Codex 專班
+[情境] Aiworks Empower 模組需服務金控、半導體、保險等不同產業，每個產業的 AI 成熟度和員工背景差異極大。和泰產險全員 800 人線上培訓 vs 半導體公司深度 Agent 工作坊。
+[行動] 設計分層培訓方法論：能力基線診斷 → 分層賦能（知識輸入→加速發展→持續改善）→ 能力擴散。課程不限單一廠商——OpenAI、Microsoft Copilot、Google Gemini、Claude 全教。兩條 Codex 培訓路線：工程師版（技術深潛）vs 技術小白版（場景導向）。Power BI 精算需求專班、PA 長期班等客製課程。
+[結果] 累計結訓 20,000+ 學員，200+ 合作企業。培訓成為 Aiworks 最穩定的獲客引擎——上完課的企業會繼續找 Aiworks 做導入和顧問。
+[追問素材]
+- 決策點：為什麼設計雙軌 Codex 路線？→工程師版需要深潛 Agentic Coding（PR review、test generation、multi-file edit），技術小白版需要場景導向（「如何用 AI 幫我寫 email、做報表」）。硬塞一起=工程師覺得太淺、非技術者跟不上。分流標準：學員報名時勾選「日常會寫程式」→工程師版，否則→小白版。
+- 數字來源：20,000+ 學員=Aiworks Empower 歷史累計結訓數。200+ 企業=合作企業總數。和泰產險 800 人線上培訓=最大單場規模。培訓→導入轉換率約 30-40%=上完 Phase 1 課程後進入 Phase 2 顧問服務的企業比例。
+- 困難：800 人線上培訓（和泰產險）的互動性問題——大班無法逐一指導。解法：分 20 個小組，每組 40 人+1 助教，用 breakout room 做分組練習。課後作業用 Google Form 收集，我逐份看提案品質。
+- 角色：我設計課程結構、FTE 量化方法、評估矩陣。講師團隊（3-4 人）執行授課。各企業 HR/IT 配合行政安排。
+- Timeline：每個企業 Phase 1=4 週（課程設計 2 週+授課 2 天+課後作業 1 週+評估 3 天）。半年內完成 10+ 企業。
+- 反事實：如果只做通識培訓不做 FTE 量化——HR 無法向管理層回報培訓 ROI，下次預算就會被砍。FTE 量化是「讓培訓繼續被買」的關鍵。
+- Stakeholder：HR 最在意「培訓 KPI 達標」（參與率、滿意度）。IT 最在意「資安有沒有問題」（培訓用的是企業帳號還是個人帳號）。管理層最在意「上完課後公司有什麼改變」→這就是 FTE 的用途。
+
+#Side Projects #自動化 #創業思維
+[專案] 個人技術專案矩陣——面試提詞器、分潤矩陣、交易 Bot
+[情境] 除了主業外，持續用技術解決自己遇到的問題。面試英文不夠流利→自建即時提詞器。想建被動收入→蝦皮/酷澎分潤。想驗證量化交易→Prop Trading Bot。
+[行動] (1) Cicada Copilot：fork 開源字幕 app，整合 25 類問題分類器 + Gemini flash-lite streaming + 故事庫匹配，端到端延遲 2-3 秒。(2) 蝦皮分潤矩陣：15 個數位人帳號、Threads 自動化發文、零成本。(3) Prop Trading Bot：SuperTrend 策略 + PropFirm 自動交易。(4) GitHub AI Fork Bot：GH Actions 每日自動掃描+fork AI 相關 repo。
+[結果] Cicada Copilot 可在真實面試中即時提供雙語建議。分潤矩陣零成本起步測試中。Trading Bot Phase 0 策略設計完成。證明用 AI 工具可以快速將想法轉化為可用產品。
+[追問素材]
+- 決策點：Fork Cicada 而非從零寫→(1) Cicada 已有成熟的 macOS 音訊擷取 pipeline（AudioEngine + SpeechAnalyzer），從零寫要 3-4 週，fork 只要接上分類器和 Gemini。(2) Swift native app 比 Electron 省 60% 記憶體，面試時背景跑不影響效能。(3) 開源 MIT License，fork 合法。
+- 數字來源：25 類問題分類器=behavioral/technical/system-design 等 25 種面試題型。Gemini flash-lite 免費 tier=每分鐘 30 RPM / 每天 1,500 RPM。端到端 2-3 秒=音訊擷取 0.5s+翻譯 0.3s+debounce 0.8s+分類 0.1s+Gemini 1-1.5s。15 數位人帳號=蝦皮分潤矩陣各品類帳號。
+- 困難：Gemini 免費 tier 限制——每分鐘 30 RPM 在密集對話時可能觸發。用 debounce 0.8s 減少無效呼叫（講到一半的句子不送），加上 response cache（同類問題 5 分鐘內重複問不重送）。實際面試中 RPM 峰值約 15-20，沒觸發過限制。
+- 角色：全部獨立開發——從 fork、整合分類器、接 Gemini API、到 UI 調整。
+- Timeline：Cicada fork 2026-10→分類器 3 天→Gemini 整合 2 天→故事庫 1 週→UI 1 天→測試迭代 ongoing。分潤矩陣 2026-09 起步。Trading Bot 2026-08 Phase 0。
+- 反事實：如果從零寫——光是 macOS 音訊權限+SpeechRecognition pipeline 就要 2-3 週。Fork 讓我跳過基礎設施，直接專注在面試輔助邏輯。「站在巨人肩膀上」的最佳實踐。
+- Stakeholder：唯一 stakeholder 是自己——這是個人 side project。但驗證了「一個人+AI 工具可以在 2 週內做出可用產品」的命題，這本身就是面試中最好的 proof point。
+
+#技術寫作 #知識體系 #個人品牌
+[專案] 20+ 篇技術 Blog 與 135 篇學習筆記系統
+[情境] 兩年 PM 經驗累積大量技術決策和產品洞察，需要系統化整理成可展示的作品集。同時建立技術寫作習慣，為未來求職和個人品牌打基礎。
+[行動] 建立系統化寫作 pipeline：每個重要專案都寫成深度 Blog（3,000-8,000 字），涵蓋背景→決策→執行→結果→反思。主題包括：Similar KOL 三版演進、VLM 蒸餾實戰、Hermes 搜尋底層、GeneralTag 標籤系統、TextAction 行為萃取、SaaS 產品七年、企業交付實錄、客戶健康評分等 20+ 篇。同時維護 135 篇學習筆記（5 維度評分體系）和 30+ GitHub repos。
+[結果] 建立完整的技術內容資產。Blog 文章可直接作為面試案例的詳細版參考。學習筆記系統讓新知識 24 小時內結構化。GitHub 活躍度展示持續學習的習慣。
+[追問素材]
+- 決策點：為什麼花時間寫深度 Blog（3,000-8,000 字）而非短篇？→每篇 Blog 是一次強制的「從頭到尾梳理決策鏈」。寫的過程中會發現「當初為什麼這樣決定」的邏輯漏洞，回頭檢討。短篇只是紀錄，深度 Blog 是反思工具。
+- 數字來源：20+ 篇 Blog=Medium 上已發表的技術文章。135 篇學習筆記=Obsidian vault 中的結構化筆記。30+ GitHub repos=個人和專案 repos。5 維度評分：技術深度(1-5)、實戰應用(1-5)、創新程度(1-5)、學習難度(1-5)、未來影響(1-5)，每篇筆記都打分。
+- 困難：維持寫作習慣——最大的敵人是「工作太忙沒時間寫」。解法：每個大專案結案後強制留 1-2 天整理 Blog，寫進 Sprint 計畫。如果不排進計畫就永遠不會寫。
+- 角色：獨立寫作。偶爾找 ML 同事做 technical review（確保模型描述準確），但架構和分析是我自己的。
+- Timeline：2024-06 開始系統化寫作→2024-12 累計 10 篇→2025-06 累計 15 篇→2026-06 累計 20+ 篇。平均每月 1 篇。
+- 反事實：如果不寫——面試時只能口述經驗，沒有書面佐證。Blog 讓面試官可以先看文章再問深度問題，效率高很多。
+- Stakeholder：最大受益者是自己——寫作讓知識結構化。次要受益者是團隊——新成員可以讀 Blog 快速理解系統設計決策。CEO 在客戶提案時偶爾引用我的 Blog 說明技術深度。
+
+#企業AI治理 #顧問 #大規模部署
+[專案] 全球前三大半導體集團 ChatGPT Enterprise 治理顧問——11 項議題全數覆蓋
+[情境] 全球前三大半導體集團，10,000+ 軟硬體工程師、跨國多據點。已導入多家 AI 工具，用量超過原始承諾量。有跨部門 AI 治理 Committee，但缺結構化治理方法與外部經驗。核心問題：「用量起來了，但不知道怎麼用得聰明、管得住、擴散得有系統。」
+[行動] 5 個月密集合作，設計並交付 11 項完整治理議題：(1) 權限與安全邊界——依角色分層設定 AI 使用範圍、每條 MCP 連線個別設定動作層級。(2) 使用與成本治理——從原始 Log 建立完整數據管線，費用歸戶到每人每小時×模型。(3) Skills 全生命週期——上百個 AI 指令的審核、版控、安全掃描（Prompt Injection、越權存取）。(4) 模型選擇與成本優化——三層循環 Eval 體系，同品質成本可降 50-80%。(5) AI 自動化人工介入——依風險配置自動執行 vs 人工核准門檻。(6) 合規框架——半導體無現成 AI 合規標準，從多法規拼出適用框架。(7) ROI 量測——四層效益框架（採用→成效→成果→財務）。(8) 人才賦能——三層角色×雙軌課程×種子擴散。
+[結果] 11 項議題全數完成交付與交接。建立從權限管控到效益追蹤的完整治理架構。帶 IT/資安人員操作完成交接，具可持續營運能力。
+[追問素材]
+- 決策點：「管太嚴沒人用 vs 管太鬆出事」→設計三級風險分流：低風險 Skill 自檢放行（如翻譯、摘要）、中風險輕量確認（涉及內部資料查詢的 Skill）、高風險正式核准（涉及外部 API 呼叫、資料匯出的 Skill）。審查結果分 Pass/Conditional Pass/Revise/Hold 四級。低風險佔 60%+ 可自動放行，不卡流程。
+- 數字來源：10,000+ 工程師=客戶集團實際規模。5 個月=合作時間 2026-04→2026-09。11 項議題=具體列表。MCP 連線個別設定=每條 MCP tunnel 配置動作層級（read-only/execute/admin）。費用歸戶到每人每小時×模型=Compliance API log 解析後計算。
+- 困難：原始 Log 30 天消失——Compliance API 資料只保留 30 天，超過就永久刪除。解法：Mission Control Audit 每 6 小時自動抓取+增量同步+Parquet 長期保存。但初始部署時有 3 天的 gap（部署前的資料來不及抓），用 OpenAI support ticket 申請一次性 backfill。
+- 角色：我是主要顧問和交付負責人。客戶端有 AI Committee（跨部門，IT/資安/法務/各 BU 代表），我需要對齊所有人。
+- Timeline：2026-04 kick-off→2026-05 權限+安全（議題 1-2）→2026-06 使用+成本治理（議題 3-4）→2026-07 Skills+模型（議題 5-6）→2026-08 合規+ROI（議題 7-8）→2026-09 交接。
+- 反事實：如果不做 11 項全覆蓋而只做 3-4 項——客戶會在沒覆蓋的地方出問題，然後質疑「為什麼顧問沒提」。全覆蓋的另一個好處：建立 reference case，後續客戶可以直接用這套框架。
+- Stakeholder：CISO 最在意 Skill 安全掃描、IT Director 最在意成本歸戶、HR 最在意人才賦能。11 項議題分別對應不同的 executive sponsor。最難對齊的是「合規框架」——半導體沒有現成 AI 合規標準，要從 NIST AI RMF + ISO 42001 + 內部規範拼出適用版本。
+
+#合規架構 #數據管線 #技術設計
+[專案] Compliance 觀測平台技術架構設計——6 層 Pipeline × 20+ 物件治理
+[情境] 企業導入 ChatGPT Enterprise 後，Compliance API 原始 log 僅保留 30 天，散落在 3,000+ JSONL 檔案，企業自己接不起來。需建立可長期保留、查詢與稽核的治理平台。
+[行動] 設計團隊自建的 6 層 Compliance 觀測平台架構：(1) 資料分兩軌——Stateful（資產狀態盤點：GPTs/Projects/Skills/Codex 等 20+ 物件）+ Event-based（immutable append-only 合規事件）。(2) 設計 Fact Table Schema（compliance_events / conversation_messages / audit_actions / app_invocations / app_auth_lifecycle）。(3) 建立治理執行 API：局部刪除、隔離、unpublish。(4) 用 C4 Model 產出完整架構文件。殺手功能是「看到對話內容」——OpenAI 原生後台做不到。
+[結果] 成功建立可覆蓋全部 Compliance API 資料的觀測平台。對話稽核（逐句檢視、模型版本、附件）、儀表板（活躍、Credit、趨勢）、群組管理全數上線。架構文件可交付客戶做 self-hosted 部署。
+[追問素材]
+- 決策點：Stateful + Event-based 雙軌→Compliance API 資料分兩種性質：(1) 資產狀態（GPTs/Projects/Skills/Codex 等 20+ 物件）會被修改/刪除，需要 snapshot 捕捉變化。(2) 合規事件（對話/稽核操作/App 呼叫）是 immutable append-only，只需持續擷取。兩種性質用同一套管線會互相干擾——snapshot 需要 diff，event 只需 append。分開設計更清晰。
+- 數字來源：3,000+ JSONL=Compliance API 匯出的原始檔案數（2,000 人×30 天×多種事件類型）。20+ 物件=GPTs/Projects/Skills/Codex/Connectors/MCP/Members/Groups/Roles 等。Fact Table 5 張=compliance_events/conversation_messages/audit_actions/app_invocations/app_auth_lifecycle。C4 Model=Context/Container/Component/Code 四層架構文件。
+- 困難：增量同步——Compliance API 回傳 JSONL 檔案但沒有 cursor 機制。每次呼叫取全量，但大部分資料重複。解法：用 SHA-256 hash 做 dedup——已存在的 hash skip，新 hash 才 insert。每 6 小時跑一次，單次處理約 200-500 筆新事件。
+- 角色：我設計架構（C4 Model）和 Schema（5 張 Fact Table），工程師做 pipeline 實作。客戶 IT 負責 API key 和 VM 環境。
+- Timeline：架構設計 2 週→Pipeline 開發 4 週→Schema+轉換 2 週→前端 4 週→POC 部署 2 週。
+- 反事實：如果用 SaaS 架構不做 self-hosted——金融客戶不接受 Compliance 資料離開企業環境。self-hosted 更新靠 OCI image 版本更新——每季發版，客戶 IT pull new image + docker-compose up。
+- Stakeholder：Compliance Officer 最在意「對話內容逐句看得到」——這是殺手功能。IT 最在意「部署維護簡不簡單」——Docker Compose 一鍵啟動。資安最在意「資料不外傳」——全部跑在客戶 VM，zero egress。
+
+#商業模式 #政府補助 #產品化
+[專案] SBIR 政府補助 1,200 萬申請策略——Mission Control 產品研發
+[情境] Aiworks Mission Control（Audit 治理 + Asset 資產管理）從顧問服務走向產品化，需研發資金。評估經濟部 SBIR Phase 2 補助（上限 1,200 萬，不用還、不佔股）。
+[行動] 主導內部評估：(1) 確認公司符合申請資格（中小企業、行業碼 J62/J63）。(2) 釐清計畫範圍——Audit（Compliance API 數據管線 + 治理儀表板）+ Asset（Skills 安全掃描 + 治理平台）。(3) 設計研發時程與經費配比（補助≤50%，自籌≥50%）。(4) 準備書面審 + 30 分鐘簡報策略。
+[結果] 完成內部評估報告並向管理層提交建議。計畫以 Mission Control 雙產品為核心，定位「企業 AI 治理作業系統」。
+[追問素材]
+- 決策點：Phase 2（上限 1,200 萬）不走 Phase 1（上限 150 萬）→Phase 1 金額太小，只夠做前期研究，不夠做產品開發。Mission Control 已有 MVP，需要的是產品化資金（穩定性、安全性、UI/UX），這是 Phase 2 的定位。Phase 1 的唯一好處是通過率高（60%+），但金額不值得花時間申請。
+- 數字來源：1,200 萬=Phase 2 上限。自籌≥50%=SBIR 規定補助不超過計畫總經費 50%。所以總經費 2,400 萬，SBIR 補助 1,200 萬，自籌 1,200 萬。通過率 25-35%=歷年統計。行業碼 J62/J63=電腦程式設計/資訊服務業。
+- 困難：30 分鐘簡報策略——評審委員不懂 AI 治理但懂 B2B SaaS。不能講技術細節，要講市場痛點和商業模式。準備三版簡報：技術版（備用）、商業版（主打）、精簡版（時間不夠用）。
+- 角色：我主導申請書撰寫和簡報設計。CEO 做計畫主持人。財務做經費規劃。
+- Timeline：2026-09 評估→2026-10 內部報告→2026-11 申請書撰寫→2027-01 送件→2027-03 書審→2027-04 簡報→2027-06 結果。
+- 反事實：如果不申請 SBIR——Mission Control 產品化完全靠營收支撐，但初期客戶少營收低，工程團隊的人力成本會擠壓顧問服務人力。SBIR 1,200 萬等於 1 年的工程團隊薪資，大幅降低 burn rate 壓力。
+- Stakeholder：管理層對「通過率 25-35%」猶豫——準備申請要投入 2-3 人月。我用「期望值計算」說服：30% × $1,200 萬 = $360 萬期望值，遠大於 2-3 人月的機會成本。
+
+#自動化 #零成本 #副業
+[專案] 蝦皮分潤矩陣——15 數位人 × Threads 自動化 × 零成本模式
+[情境] 想建立被動收入管道，但不想投入資金。蝦皮聯盟行銷 + 酷澎分潤提供零成本切入點，但單帳號效益有限。
+[行動] 設計 15 個數位人帳號矩陣，每個帳號聚焦不同品類（3C/美妝/家居等）。建立 Threads 自動化發文管線，用 AI 產生符合平台風格的推薦貼文。設計分潤追蹤機制，監控各帳號轉換率。
+[結果] 零成本啟動，15 帳號矩陣建立並自動化運作。驗證了 AI + 分潤的被動收入模型可行性。
+[追問素材]
+- 決策點：為什麼用 15 帳號矩陣而非單帳號？→單帳號的內容太雜（3C+美妝+家居），Threads 演算法懲罰「雜食帳號」。每個帳號聚焦單一品類，演算法把它當「主題達人」推薦，曝光率高 3-5 倍。
+- 數字來源：15 帳號=每品類 1 個。3C/美妝/家居/運動/食品/母嬰/寵物/3C配件/生活用品/時尚/旅行/文具/書籍/健康/園藝。蝦皮分潤佣金 2-8%（品類不同）。酷澎分潤 5-10%。
+- 困難：平台偵測——同 IP 多帳號會被 flag。解法：(1) 每帳號用不同的 device fingerprint（瀏覽器 profile）。(2) 發文間隔隨機化（不是每小時一篇的機器節奏）。(3) AI 產生內容後人工微調語氣（每個帳號有不同的人設/語氣）。AI 內容轉換率：0.5-1.2% CTR，低於真人 KOL（2-5%）但零成本所以 ROI 無限大。
+- 角色：獨立一人專案——從帳號規劃、內容策略、AI prompt、自動化到追蹤。
+- Timeline：2026-09 開始→2026-10 15 帳號建立完成→2026-11 自動化流程上線→持續運行中。
+- 反事實：如果做真人 KOL——需要露臉、拍片、投入大量時間。分潤矩陣的核心優勢是「零邊際成本」——AI 產內容+自動發文，睡覺時也在賺。天花板在流量：Threads 台灣月活約 300 萬，15 帳號能觸及的上限大概 10-30 萬人。
+- Stakeholder：唯一 stakeholder 是自己。但這個專案驗證了「AI 內容矩陣+分潤」的被動收入模型，未來可以教別人複製（培訓產品化？）。
+
+#產品策略 #企業AI #市場定位
+[專案] 台灣企業 AI 市場定位與 Aiworks 五模組飛輪設計
+[情境] 台灣企業 AI 導入市場快速變化：AWS Marketplace 即將開放 OpenAI 直購（2026-12），通路獨佔正在鬆動。Aiworks 作為台灣唯一 OpenAI Advanced Partner，需重新定義價值主張。
+[行動] 深度分析台灣市場結構：(1) 大型企業（半導體/金融）傾向地端部署，2026 為「地端 AI 元年」。(2) 中小企業困境：小機器預裝、單點 Age AI、雲端共用帳號亂象。(3) 設計從培訓→授權→治理→賦能→專案的五模組飛輪，每個階段都有角色。(4) Mission Control 品牌傘策略：Audit 是「煞車」（管得住），Asset 是「油門」（用得好），兩者交換數據形成飛輪。
+[結果] 完成商業模式全貌文件，從「賣人力」定位升級為「企業 AI 生命週期覆蓋」。產品+顧問雙引擎模式，130+ 客戶基礎。向管理層提交戰略轉型建議。
+[追問素材]
+- 決策點：五模組交叉銷售策略→典型路徑：培訓（Phase 1）→授權導入（買 ChatGPT Enterprise）→治理顧問（Compliance/Governance）→Mission Control 產品（Audit+Asset）→持續陪跑。每個階段自然過渡到下一個。但不是線性——有的客戶直接從治理開始（已經有 ChatGPT Enterprise），有的從專案進來（和泰產險 AS400 RPA）。
+- 數字來源：130+ 客戶基礎=歷史累計。五大模組：授權導入（ChatGPT Enterprise/API 經銷 margin 15-20%）、Mission Control（Audit 買斷+Asset 年費）、Empower（培訓 $15-50 萬/場）、顧問陪跑（$4.5 萬/人天）、技術專案（客製開發，專案制）。
+- 困難：不做地端方案的原因——Aiworks 沒有自己的模型，地端需要開源模型（LLaMA/Qwen）+ 推理 infra + 維運。人力和技術都不到位。VLM 蒸餾是初步嘗試但離產品化還遠。策略是：治理層做地端（Mission Control Air-gapped），模型層維持雲端（ChatGPT Enterprise）。
+- 角色：我做市場分析和五模組架構設計。CEO 做戰略決策。BD 做市場驗證（每個模組的定價和打法）。
+- Timeline：2026-05 市場分析→2026-07 五模組架構→2026-09 定價完成→2026-10 上線→2027 全面推進。
+- 反事實：如果做全端（模型+治理+培訓）——需要 ML 團隊 5-10 人 + GPU infra，年 burn rate 增加 $3,000 萬+。Aiworks 是 20 人公司，不可能也不應該做全端。專注治理+賦能是正確的 positioning。
+- Stakeholder：OpenAI 原廠視角：Aiworks 做好治理+賦能=幫 OpenAI 賣更多 Enterprise 授權。AWS 視角：CPPO 代銷讓 Aiworks 成為 AWS 通路之一。客戶視角：一站式服務（授權+治理+培訓）比分三家採購方便。三方都有利。
+
+#全球化 #零停機遷移 #ES架構
+[專案] Country Isolation——七市場 ES 數據隔離零停機遷移
+[情境] KolRadar 從台灣擴展到日本、新加坡、印尼、澳洲、美國等七個市場。單一 ES index 效能下降，台灣主力市場被其他國家爬蟲任務搶佔資源。需要在不影響線上服務的前提下做資料隔離。
+[行動] 設計四階段遷移：Phase 1 KOL Index 拆分（akashic-kol-v1 → akashic-kol-tw + akashic-kol-global），用 ES alias 做零停機切換。Phase 2 Post Index 按季度+國家雙維度分區。Phase 3 Crawler 排程按國家/時段分流。Phase 4 雙寫入期間髒資料清理。關鍵設計：alias 指向兩個 index，搜尋端零改動。
+[結果] 台灣查詢效能隔離完成，不受全球爬蟲影響。零停機遷移無 incident。架構支撐七市場獨立擴展，每個市場可以有自己的爬蟲頻率和資源配額。
+[追問素材]
+- 決策點：為什麼用 ES alias 做零停機切換而非直接 reindex？→直接 reindex 需要停機窗口（746 GB/季的 index 重建要數小時）。alias 方案：建新 index → 背景寫入 → alias 切換（原子操作，<1ms）→ 舊 index 保留一週再刪。搜尋端零改動——query 打 alias 名字不打 index 名字。
+- 數字來源：七市場=台灣/日本/新加坡/印尼/澳洲/美國/泰國。akashic-kol-v1 → akashic-kol-tw + akashic-kol-global。Post index 按季度+國家雙維度分區（如 akashic-post-tw-2025q3）。ES 16.9 TB=全平台 index 總量。
+- 困難：雙寫入期間一致性——遷移中新資料同時寫入舊 index 和新 index，如果某筆寫入只成功一邊就不一致。解法：(1) 用 bulk API 同步寫入+retry。(2) 遷移完成後跑 count 比對確認兩邊 doc count 一致（允許 <0.01% 差異）。(3) 髒資料清理 script 在切換後跑一次。
+- 角色：我設計遷移策略和分區方案。DE 團隊做 script 開發。SRE 監控遷移期間的 cluster 健康度（CPU/Heap/GC）。
+- Timeline：Phase 1 KOL index 拆分 2 週→Phase 2 Post index 分區 3 週→Phase 3 Crawler 排程分流 1 週→Phase 4 髒資料清理 1 週。總共 7 週。
+- 反事實：如果不做隔離——台灣查詢效能被全球爬蟲拖慢（爬蟲佔 ES CPU 60%+），客戶搜尋延遲從 200ms 飆到 2-3 秒。台灣是營收主力市場，不能因為全球化犧牲本地體驗。
+- Stakeholder：日本 BD 希望日本資料更新更頻繁（每 6 小時），但 infra 成本線性增長。用國家隔離後，日本可以獨立調整爬蟲頻率不影響其他市場——這就是隔離的價值。
+
+#數據科學 #產品激活 #方法論
+[專案] Aha Moment 產品激活——用數據找到付費轉化的關鍵行為
+[情境] KolRadar 線上自助付費比例僅 0-4%，需要找到「什麼行為讓用戶決定付費」。DS 團隊有初步框架但未落地，我需要把研究方法論轉化為可執行的產品策略。
+[行動] 設計完整研究流程：(1) 定義優化目標為「註冊 30 天內 ARPU + 付費率」。(2) 確定觀察窗口 7 天（夠短以確認因果方向，夠長覆蓋 50% 首次付費）。(3) 用 Amplitude 事件分析識別候選行為：搜尋網紅→瀏覽結果→點擊 KOL 為主路徑。(4) A/B 群驗證閾值（類似 train/test split）。排除業務導入的線下付費（3 天內即付款者行為無分析意義）。
+[結果] 識別出「搜尋→點擊→解鎖」為核心 Aha Moment 路徑。產品端據此優化 Onboarding 流程，引導新用戶更快觸達關鍵行為。方法論可複用到其他 SaaS 產品。
+[追問素材]
+- 決策點：7 天觀察窗口→14 天覆蓋更多首次付費（70%），但因果方向模糊——14 天內太多干擾變數（業務跟進、促銷活動）。7 天覆蓋 50% 首次付費且干擾少，因果更乾淨。用 Amplitude 事件回溯確認：7 天內付費的用戶，70% 在 Day 1-3 就完成「搜尋→點擊→解鎖」路徑。
+- 數字來源：線上自助付費 0-4%=歷史數據。前 10% 活躍用戶=用 Amplitude cohort 分析取 search frequency 前 10%。排除業務導入的線下付費（3 天內付款者）=這些人不是自助轉化，行為無分析意義。
+- 困難：Correlation vs causation——「搜尋多的人付費多」可能是因為「已經決定付費的人才會認真搜尋」。驗證方法：(1) A/B 群：註冊後隨機分兩組，一組引導做搜尋→點擊→解鎖路徑，一組不引導。引導組付費率 +35%。(2) 時序分析：確認行為發生在付費之前而非之後。
+- 角色：我設計研究方法論和指標定義。DS 團隊做 Amplitude 數據提取。產品團隊根據結論優化 Onboarding 流程。
+- Timeline：研究設計 1 週→數據提取+分析 2 週→A/B 驗證 4 週→結論報告 1 週→產品優化 2 週。
+- 反事實：如果不做 Aha Moment 研究，靠直覺優化 Onboarding——會把資源投在「美化註冊頁面」而非「引導用戶完成首次搜尋」。很多 SaaS 的 Onboarding 優化都錯在改 surface（外觀）不改 behavior（行為引導）。
+- Stakeholder：PM 最在意「找到之後產品怎麼改」→在 Onboarding 流程加入「立即搜尋一位 KOL」引導步驟。Growth 最在意「轉化率數字」→引導組 +35%。CEO 最在意「投入產出比」→研究成本 8 週人力，換來持續的轉化提升。
+
+#指標設計 #搜尋品質 #DCG
+[專案] CSQI 搜尋品質指標——從 486 個 Amplitude 事件建立單一品質分數
+[情境] KolRadar 搜尋引擎沒有統一的品質衡量標準。每次改版只看單一指標（CTR、停留時間），無法全面評估搜尋品質。需要一個 0-100 的綜合指標讓產品、工程、業務都能理解。
+[行動] 設計 CSQI 三層架構：搜尋結果滿意度（互動加權 IWS 用 DCG 邏輯 Σ(int_i/log₂(i+1))、有效搜尋率 ESR、點搜比 CTR、未點擊率）+ 內容契合度（KD 頁停留、解鎖回訪率）。互動性分 1-5 級（進入=1、停留=2-3、深度互動=4、關鍵轉化=5）。計算單位用 Session 而非 Search，避免連續搜尋的重複計算。
+[結果] 建立可追蹤的月度搜尋品質報告。CSQI 成為搜尋改版的唯一量化驗收標準。團隊從「感覺搜尋變好了」升級為「CSQI 從 62 提升到 71」的精確溝通。
+[追問素材]
+- 決策點：為什麼自建 CSQI 不用現成指標（NDCG/CTR）？→單一指標不夠全面：CTR 高但停留短=誤點，NDCG 高但解鎖率低=看不買。CSQI 三層架構把搜尋滿意度、內容契合度、轉化深度整合成 0-100 分。團隊從「NDCG 好搜尋就好」升級為多維度評估。
+- 數字來源：DCG log₂ 基數=業界標準（Jarvelin & Kekalainen 2002），衰減速度適中。IWS 互動加權分 5 級：進入=1、短停留=2、長停留=3、深度互動=4、關鍵轉化（解鎖/聯繫）=5。Session 超時 30 分鐘=用 Amplitude session timeout 預設值，驗證過 95% 的搜尋行為在 30 分鐘內完成。
+- 困難：ECTR benchmark 不能直接平均——高搜尋量 workspace（Agency 每月搜 500 次）和低搜尋量 workspace（中小企業每月搜 10 次）的 CTR 差異大。平均會被高量級拉偏。用 median + IQR（四分位距）做 benchmark，更能代表「典型客戶」的搜尋品質。
+- 角色：我設計 CSQI 框架和計算公式。DS 做 Amplitude 事件提取和自動化報告。產品團隊根據 CSQI 分數決定搜尋改版優先級。
+- Timeline：框架設計 2 週→指標定義+公式 1 週→自動化月度報告 2 週→首次報告 2025-04→每月持續追蹤。
+- 反事實：如果只用 CTR——有次搜尋改版 CTR +15% 但解鎖率 -20%（用戶點了更多但不買）。只看 CTR 會以為改版成功，CSQI 捕捉到解鎖率下降，及時回滾。
+- Stakeholder：工程團隊最在意「指標怎麼計算」（公式要可 reproduce）。業務最在意「客戶的搜尋好不好用」（CSQI 可以 per-workspace 算，找出搜尋體驗差的客戶）。管理層最在意「搜尋品質趨勢」（月度 CSQI 報告一張圖說完）。
+
+#團隊管理 #MBO #AI研發
+[專案] 20 人 AI Lab 四子團隊 MBO 管理——從研究到落地的目標拆解
+[情境] AI Lab 有 ML/DS/DE/BE 四個子團隊共 20 人，維護 30+ 模型、21 個微服務。研究和產品節奏完全不同——ML 用實驗迭代，BE 用 Sprint 交付。需要一套框架讓四個團隊對齊目標又保持各自節奏。
+[行動] 建立 MBO 目標體系：五大核心 KR（推薦搜尋精準度 25%、模型維運 20%、Agent 產品 20%、資料平台 20%、團隊效能 15%）。每個 KR 拆到個人層級。設計 Model Performance Monitor：所有線上模型 KPI 平均 ≥70%，低於 70% 啟動優化流程，20% 關鍵模型半年內至少一次再訓練。DS 團隊建立 36 項研究→13 項可落地指標的漏斗。
+[結果] 四子團隊在統一框架下運作兩年（120+ 次 Weekly），研究產出可見度大幅提升。模型品質有系統化監控和再訓練機制。DS 研究從散點探索轉為有結構的漏斗（36→13 指標，淘汰率 64%）。
+[追問素材]
+- 決策點：ML 研究結果不確定怎麼設 MBO？→分兩軌：交付軌用明確 KR（「Similar KOL V3 上線」「NDCG ≥0.7」），研究軌用里程碑 KR（「完成 POC 評估報告」「baseline 建立」），不設結果 KR。研究 slip 不衝擊 Sprint——研究 milestone 和交付 ticket 分開追蹤。
+- 數字來源：五大 KR 權重=推薦搜尋精準度 25%、模型維運 20%、Agent 產品 20%、資料平台 20%、團隊效能 15%。20 人=ML 8 / DS 4 / DE 4 / BE 4。30+ 模型=線上服務模型數。21 個微服務=API 服務數。36→13 指標=DS 36 項研究中 23 項被淘汰（可行性低/ROI 不足/資料不齊）。
+- 困難：模型品質 70% 門檻——太高會讓 ML 花過多時間調參，太低影響產品品質。70% 是用歷史數據回測：低於 70% 的模型在 production 中引發客訴的機率顯著增加。20% 關鍵模型（TextLangID/GeneralTag/Similar KOL/Hermes）半年至少再訓練一次=這些模型的資料分布 drift 最快。
+- 角色：我設計 MBO 框架和 KR 拆解。ML Lead 負責研究軌目標確認。各子團隊 Lead 負責個人 KR 拆解。每週 1 次全團隊 Weekly（120+ 次）+ 每月 1 次 MBO review。
+- Timeline：每季初定 KR（1 週）→每月 review（0.5 天）→季末評估（1 天）。兩年跑完 120+ 次 Weekly。
+- 反事實：如果 ML 和 BE 用同一套 Sprint 節奏——ML 研究 slip 會拖延 BE 的 feature 上線，BE 的 hotfix 會打斷 ML 的實驗。分開追蹤讓兩邊各跑各的，只在 integration point 對齊。
+- Stakeholder：ML Lead 最在意「研究自主權」（不要 PM 管太細），我用里程碑 KR 而非微管理回應。CTO 最在意「為什麼要養 20 人 AI Lab」→MBO 報告量化每個子團隊的產出。DS 最在意「研究不要被砍」→36→13 淘汰標準公開透明（可行性/ROI/資料三維度），被淘汰的研究可以下季重提。
+
+#產品管理 #多版本演進 #B2BSaaS
+[專案] CDP 客戶數據平台——9 大模組 15+ 版本的產品演進管理
+[情境] iKala CDP 是 B2B 客戶數據平台，涵蓋受眾管理、行銷自動化、事件分析等 9 大模組。從 v1.0 到 v4.15 經歷 15+ 個版本，上線首月就做了 8 次發布（最密集期）。v4.0 ID Resolver 是架構最關鍵的版本——解決跨裝置用戶身份統一。
+[行動] 管理多模組並行迭代：受眾分群、MA 行銷旅程、第三方通路整合（LINE/Facebook/SMS）各有不同客戶需求優先順序。建立版本發布節奏：高頻 hotfix + 雙週 feature release + 季度 major version。v4.0 ID Resolver 設計跨裝置身份解析邏輯，用 deterministic + probabilistic matching 統一用戶畫像。協調 CDP Lite 精簡版上線以覆蓋中小型客戶。
+[結果] CDP 成功從受眾工具演進為全通路行銷平台。9 大模組穩定運行，支撐多產業客戶（零售/金融/電信）。版本發布節奏讓團隊從「上線就出事」進化到系統化的 release cadence。
+[追問素材]
+- 決策點：v4.0 ID Resolver 用 deterministic + probabilistic matching→deterministic（email/phone 完全匹配）覆蓋 60% 用戶，剩下 40% 用 probabilistic（device fingerprint + 行為序列 similarity > 0.85 就合併）。只用 deterministic 會漏掉跨裝置用戶，只用 probabilistic 會有 false merge（不同人被合成一個）。
+- 數字來源：9 大模組=受眾管理/MA 行銷旅程/事件分析/LINE 整合/Facebook 整合/SMS/推播/標籤管理/ID Resolver。15+ 版本=v1.0→v4.15。首月 8 次發布=上線後 bug 密集，主要是第三方通路 API 變更（LINE Messaging API v2→v3 / Facebook Marketing API v15→v16）。
+- 困難：首月 8 次發布的 root cause 不是 bug 多，是第三方 API 變更太快。LINE 和 Facebook 的 API 沒有向後相容保證，v4.0 launch 時碰上兩家同時改版。後來建立 API 變更監控（每週掃描 changelog）+ 封裝層隔離變更影響。
+- 角色：我是 CDP PM，負責模組優先排序和版本規劃。前端 3 人、後端 4 人、QA 2 人。我主導 v4.0 ID Resolver 的需求定義和技術評估。
+- Timeline：v1.0 2022-03→v2.0 2022-09→v3.0 2023-03→v4.0 2023-09（ID Resolver）→v4.15 2024-06。每個 major version 間隔約 6 個月。
+- 反事實：如果不做 ID Resolver——跨裝置用戶在系統裡是「兩個人」，受眾分群不準、MA 旅程會重複觸發（同一人在手機和桌面各收一封促銷信）。客戶投訴「為什麼發了兩封一樣的信」就是沒有 ID Resolution 的後果。
+- Stakeholder：零售客戶最在意「受眾準不準」（影響行銷預算 ROI）。金融客戶最在意「不要發重複通知」（法規要求）。電信客戶最在意「跨渠道追蹤」（門市+APP+網站的統一身份）。CDP Lite 精簡了 MA 旅程和事件分析（這兩個模組最複雜），保留受眾管理+通路整合+標籤——足夠中小客戶用。
+
+#企業AI導入 #顧問方法論 #三階段架構
+[專案] 企業 AI 導入三階段方法論——從 User Pilot 到 Enterprise Rollout
+[情境] 多家企業（全國電子、是方電訊、建興儲存、信義房屋等）要導入 ChatGPT Enterprise，但缺乏結構化導入路徑。每家的 AI 成熟度、組織規模、資安要求不同。需要一套可複製的企業 AI 導入框架。
+[行動] 設計三階段方法論：Phase 1 User Pilot（4 週）——流程梳理工作坊引導同仁盤點痛點、AI 實作課程（Desktop 版 for 非技術者 + Codex 版 for 開發者）、課後盤點 FTE 量化效益。Phase 2 Enterprise 後治理（3-4 個月）——三份導入文件（Quickstart/Compliance API SOP/資安指引）、AI 治理 GuardRail 制度、Skill Registry & Governance Gate、Compliance API Dashboard 建立、Token Efficiency 提升。Phase 3 平台管理機制——三平台管理（ChatGPT/Codex/API）、跨部門擴散與 ROI 追蹤。核心設計：01/02 併行進行，種子部門第 4 週即開始使用——先用起來、邊用邊治理、再逐部門擴散。
+[結果] 方法論在 10+ 企業成功複製，從零售（全國電子）、電信（是方電訊）到金融（玉山銀行）皆適用。Phase 1 課後作業收集到每學員至少 3 項提案，並量化 FTE 值。Phase 2 成功建立企業 Skill 治理標準和合規監控。
+[追問素材]
+- 決策點：為什麼 01/02 併行而非先完成治理再開放？→企業員工不用就不會有真實回饋，治理規則會變成紙上談兵。先用 4 週→收集真實使用行為→據此設計 GuardRail。
+- 數字來源：10+ 企業=全國電子/是方電訊/建興儲存/信義房屋/玉山銀行等具名客戶。FTE 值=學員提案中量化「AI 取代手動工作的人力時數÷每日工時」，例如競品分析 FTE=0.23。
+- 困難：全國電子 Phase 1 課後，HR 學員提出的提案是「用 AI 寫績效評語」——觸發資安紅線（個資），必須即時介入分級。證明「先用再治理」確實有風險，但也證明只有用了才會暴露問題。
+- 角色：我設計方法論框架和課程結構，講師團隊（3-4 人）執行授課，IT 窗口配合環境設定。我主導每場的課前問卷分析和課後提案評估。
+- Timeline：Phase 1 固定 4 週、Phase 2 3-4 個月。從提案到第一家實施約 2 週準備期。
+- 反事實：如果先花 3 個月做完治理制度才開放——企業高層會失去耐心、員工會偷用個人帳號（更不可控）。「邊用邊治理」是務實選擇。
+- Stakeholder：全國電子 IT 主管對「先用再治理」有疑慮，用是方電訊成功案例說服——是方先開 50 人 pilot，4 週後零資安事件，再擴到全組織。
+
+#AI資安 #企業安全 #技術顧問
+[專案] 企業 AI 資安控制八層架構設計——從網路到金鑰管理
+[情境] 金融業客戶（富邦金控等）導入 ChatGPT Enterprise，資安團隊需要端到端的安全控制架構。OpenAI 原廠提供各種安全功能，但企業不知道怎麼組合、先做哪個、怎麼驗證。
+[行動] 設計八層企業 AI 資安控制架構：(1) 網路架構——企業網路出口 → Proxy/SASE → ChatGPT Enterprise，TCP 443 only。(2) IP Allowlist——限制 Compliance API 與 Workspace 存取的來源 IP，VPN/遠端情境管理。(3) Workspace Header——Proxy 注入 ChatGPT-Allowed-Workspace-Id，限制只能用核准的企業工作區。(4) SSO/SCIM/RBAC——IdP 單一登入、帳號生命週期佈建、角色與群組功能權限。(5) Lockdown Mode——限制網頁瀏覽與對外連線降低提示注入風險。(6) EKM（Enterprise Key Management）——客戶 KMS 管理主金鑰保護靜態資料。(7) TLS Inspection Bypass——api.chatgpt.com 必須跳過企業 SSL 解密。(8) Compliance API 存取——稽核擷取主機的出口 IP 獨立管理。每層搭配驗證情境、可留下的證據。
+[結果] 完整資安架構文件交付客戶資安、法遵與採購共同檢視。建立 20 項控制與資料驗證情境清單。客戶 IT 團隊按架構完成設定與驗證。Trust Portal 原廠證據（ISO/SOC 2 Type 2/DPA）整合進客戶檢核流程。
+[追問素材]
+- 決策點：為什麼是八層而非更簡單的三層？→金融業資安審查需要每個控制點都有獨立驗證證據。IP Allowlist 和 Workspace Header 看似重疊，但前者控「來源」後者控「目的地」，缺一不可。
+- 數字來源：20 項驗證情境=每層 2-3 個測試案例，文件化為 checklist 交付。Trust Portal 證據=ISO 27001/27017/27018 + SOC 2 Type 2（查核期間 2025-10 到 2026-03）。
+- 困難：EKM 撤銷金鑰的 edge case——撤銷後快取金鑰還有效，要等 cache TTL 過期才真正斷。這段空窗期怎麼解釋給資安團隊？最後用「啟動撤銷≠即時斷線，但 24h 內生效」的說法通過。
+- 角色：我設計架構文件和驗證清單，IT 管理員執行設定，資安團隊負責審核通過。三方要同步。
+- Timeline：架構設計 2 週→客戶 IT 設定 1 週→驗證 1 週→資安審核 2 週。總共約 6 週。
+- 反事實：如果跳過 Workspace Header 只做 IP Allowlist——員工用公司 VPN 但登入個人 ChatGPT 帳號就繞過了。兩層都要才能堵住。
+- Stakeholder：法遵團隊最關心 DPA（Data Processing Agreement），資安最關心 EKM，IT 最關心 SSO/SCIM。三個團隊的重點完全不同，我要用同一份文件滿足三方。
+
+#Skill治理 #產品創新 #企業AI資產
+[專案] Enterprise Skill Registry & Governance Gate——AI 指令的全生命週期治理
+[情境] 企業導入 ChatGPT Enterprise 後，員工開始建立大量 Skills/GPTs/Agents，但沒有治理——不知道哪些 Skill 有 Prompt Injection 風險、哪些存取了不該存取的資料、哪些功能重疊互相搶觸發。半導體客戶有上百個 AI 指令待審查。
+[行動] 設計 Skill 全生命週期治理框架四層架構：(1) 風險治理——自動掃描 Skill 結構，偵測 Prompt Injection、資料外傳、可疑腳本、越權存取。(2) 功能治理——可執行性與意圖確認，比對實際行為是否符合 Skill 設計意圖。(3) 責任邊界治理——正反例測試與描述重疊分析，管理觸發邊界、責任分工及任務搶占風險。(4) 生命週期治理——版本管控、到期複查、回滾與停用，防止 SOP 變更後 Skill 靜默產生錯誤結果。技術實作：Review Gate（發布前掃描）→ Admin Review → Registry（版本、擁有者、核准狀態）→ Observability（監測觸發/成功/異常/人工修正訊號）。
+[結果] 設計完成並納入 Mission Control Asset 產品規格。半導體客戶 POC 期間成功掃描上百個既有 Skill，識別出 PII 暴露、Prompt Injection 等風險。框架成為 Aiworks 差異化的產品賣點——市場上沒有同類競品。
+[追問素材]
+- 決策點：為什麼做四層而非只做風險掃描？→半導體客戶的真實問題不只安全，是「三個部門建了功能幾乎一樣的 Skill，互相搶觸發」。責任邊界治理是客戶第一個提出的需求。
+- 數字來源：「上百個 Skill」=半導體客戶 POC 時匯出的 Skills 清單實際 127 個。PII 暴露=掃描出 8 個 Skill 包含員工 ID pattern、3 個包含內部系統 URL。
+- 困難：Prompt Injection 偵測的 false positive 很高——正常的 system prompt 也會被標記。需要建 whitelist pattern 和 confidence threshold 反覆調整。
+- 角色：我設計治理框架和產品規格，工程師做 Scanner SDK 實作，半導體客戶的 IT 團隊跑 POC 掃描。
+- Timeline：框架設計 3 週→SDK 開發 6 週→POC 掃描 2 週→報告產出 1 週。
+- 反事實：如果只做 Registry 不做自動掃描——企業會當成「又一個登記系統」沒人願意用。自動掃描+風險報告是推動 adoption 的關鍵。
+- Stakeholder：半導體客戶的 CISO 看到 PII 掃描結果後說「這就是我們要的」——之前他們知道有風險但沒辦法量化。GitHub Code Review 類比讓開發團隊秒懂：「就像 PR review 但對象是 AI Skill」。
+
+#產品架構 #自建平台 #企業SaaS
+[專案] Mission Control Audit 產品架構——從 Compliance API 到企業級治理儀表板
+[情境] OpenAI Compliance API 原始 log 僅保留 30 天，且沒有視覺化介面——企業看不到對話內容、無法追溯使用行為、無法做成本歸戶。市場上沒有現成的 ChatGPT 合規監控產品。
+[行動] 從零設計並構建 Mission Control Audit 產品：四個 Docker 容器（Ingest 資料擷取/Transform 資料轉換/API 後端/Web 前端），Docker Compose 統一編排。資料引擎選用 DuckDB（OLAP）+ Parquet 格式——比 PostgreSQL 快數十倍做聚合查詢。設計 7 張分析表（事件總表/對話訊息/稽核操作/App 呼叫/成本彙總/帳單明細/使用者摘要）。前端 Next.js + React + shadcn/UI，多層級鑽取式瀏覽（組織→群組→使用者→對話→逐句）。支援離線部署（Air-gapped）——OCI Archive + SHA-256 校驗。殺手功能：對話內容逐句稽核，OpenAI 原生後台做不到。
+[結果] 產品牌價軟體買斷 $180 萬、部署建置 $90 萬、首年 $360 萬。成功在富邦金控、玉山銀行等客戶啟動 POC。VM 規格：16 vCPU / 64 GB RAM / 1 TB SSD，可處理 2,000 人規模、2 年資料保留（~12 GB/月日誌量）。
+[追問素材]
+- 決策點：DuckDB vs PostgreSQL vs ClickHouse→DuckDB embedded 不需獨立 server process，在 Docker 內嵌入即可。2,000 人規模 2 年資料量~600 GB Parquet，DuckDB OLAP 聚合比 PG 快 10-50x。ClickHouse 需要獨立 cluster 維運成本高。
+- 數字來源：$180 萬/$90 萬/$360 萬=產品規格書牌價，已在富邦/玉山 POC 報價中使用。12 GB/月=假設 2,000 人、80% 活躍、每人每日 25 回合×2 筆 msg（5.4 KB/筆）+ 5 筆 App event（9.5 KB/筆）。16 vCPU/64 GB RAM=backfill + transform + DuckDB query 同時跑的壓力測試結果。
+- 困難：Air-gapped 部署的最大坑——OCI image 超過 30 GB，傳進金融機構的隔離網路要用 USB/光碟+SHA-256 逐個校驗。每次更新都是「把 image 打包→跑校驗→實體送進去→load→test→切換」，一次要半天。
+- 角色：我做產品規格設計和架構決策（選 DuckDB/Parquet/Docker Compose），工程團隊（2 BE + 1 FE）做實作。
+- Timeline：架構設計 2 週→MVP 6 週→POC 部署 2 週。
+- 反事實：如果用 SaaS 部署不做 Air-gapped——金融客戶一律拒絕。Air-gapped 是金融業的 table stakes。
+- Stakeholder：富邦 IT 團隊看到「對話內容逐句稽核」時的反應是「OpenAI 後台做不到的你們做到了？」——這是殺手功能。隱私爭議：對話稽核權限由企業 Compliance Officer 持有，不是 IT admin，分權設計。
+
+#產品設計 #SDK交付 #AI資安
+[專案] Mission Control Asset Scanner SDK——企業 AI 資產的安全掃描引擎
+[情境] 企業建了大量 ChatGPT Skills/GPTs/Agents，但不知道這些 AI 資產是否安全。員工可能在 Skill 中暴露公司機密（PII）、存在 Prompt Injection 漏洞、或建立重複/衝突的 Skill。需要一套可在企業環境運行的掃描工具。
+[行動] 設計 Scanner SDK 架構：三項核心掃描能力——(1) PII/機密資料偵測（識別 Skill 中的敏感個資與機密資訊）、(2) Prompt Injection 偵測（檢查是否存在注入風險）、(3) Skill 意圖/SOP 相似度比對（找出重複或衝突的 Skill）。SDK 以 Python Package 交付，客戶在自己環境安裝執行。進階模組：外部腳本分析、權限邊界檢查。商業模式設計雙軌選擇：SDK 模組授權（Tier 1 Scan $112.5 萬/年、Tier 2 Analyze $180 萬/年），或升級至 Asset 企業版平台（含管理後台、審查流程、Sandbox）。
+[結果] SDK 在 POC 期間成功掃描客戶既有 Skill 資產，產出風險指標報告。設計完整的 POC→正式階段銜接機制：免費 POC 驗證→依需求選擇 SDK 或企業版。企業版首年 $612 萬含建置，第二年起 $342 萬/年。
+[追問素材]
+- 決策點：SDK 而非 SaaS→企業 Skill 內容是高度機密（包含業務流程、內部 SOP），不可能上傳到外部 SaaS。SDK 在客戶環境跑，資料不出廠。雙軌商業模式讓客戶按需求升級。
+- 數字來源：Tier 1 $112.5 萬/年、Tier 2 $180 萬/年=基於人天成本+市場定位設計的級距定價。企業版 $612 萬=80 天建置×$4.5 萬/天 + 授權 $180 萬（首年五折）+ 維護 $135K×12。
+- 困難：PII 偵測 false positive——員工在 Skill 中寫「範例：王小明 0912-345-678」是教學用途不是真實個資。需要 context-aware 偵測，不能只做 regex pattern matching。
+- 角色：我設計產品規格、掃描能力範圍和定價模型。ML engineer 實作偵測引擎（基於 NER + rule-based hybrid），我做 POC 規劃和客戶交付。
+- Timeline：產品規格 2 週→SDK 開發 8 週→POC 交付 2 週。
+- 反事實：如果只做 PII 掃描不做相似度比對——只解決安全問題不解決治理問題。客戶真正痛的是「127 個 Skill 裡有 30% 功能重疊」，不只是安全風險。
+- Stakeholder：半導體 CISO 最在意 PII，IT Director 最在意相似度（減少維護成本），業務最在意 Prompt Injection（怕 Agent 亂做事）。三個 persona 各有不同 buying trigger。
+
+#POC策略 #企業銷售 #雙產品設計
+[專案] 富邦金控雙產品 POC 設計——從免費驗證到百萬合約的轉化漏斗
+[情境] 富邦金控（2,000 席 ChatGPT Enterprise）需要評估 Mission Control 雙產品（Audit 治理 + Asset 資產管理）。客戶決策鏈長、資安要求高，直接簽約風險太大。需要設計讓客戶零風險試用的 POC 方案。
+[行動] 設計雙產品 POC 架構：(1) Audit POC（8 週）——W1-2 需求訪談（監測規格/組織層級/API Key 取得）→ W3-4 部署上線（標準版部署/API 串接）→ W5-7 試用與回饋（定期回饋會議收集需求）→ W8 驗收。(2) Asset POC（8 週）——同步進行，交付 Scanner SDK 做 PII 掃描驗證。關鍵策略：POC 免費，但嵌入「回饋收集→需求定義」機制——POC 期間的客製化需求自動成為正式階段的報價基礎。驗收不止技術驗證，還包含需求規格文件交付。牌價設計：Audit 企業版首年 $522 萬（建置+授權五折+維護 12 月），Asset 企業版首年 $612 萬。
+[結果] POC 方案通過客戶資安與採購雙重審核。免費 POC→正式合約的轉化路徑清晰定義。雙產品並行 POC 降低客戶評估成本。回饋收集機制確保正式階段需求有 POC 數據支撐而非空想。
+[追問素材]
+- 決策點：為什麼免費 POC 而非收費 pilot？→金融業採購流程 3-6 個月，免費 POC 繞過採購直接跟 IT/業務跑。用「技術驗證」名義進去，POC 結束時客戶已經用上了，不續約就要拔——conversion pressure 很強。
+- 數字來源：$522 萬/$612 萬=基於產品規格書的企業版牌價。8 週 POC=W1-2 訪談+W3-4 部署+W5-7 試用+W8 驗收，這是跑了 3 家客戶後固化的最佳時程。
+- 困難：回饋收集 scope creep——富邦 POC 期間收到 23 個需求，其中 8 個超出產品路線圖。用「列入正式階段評估」和「POC 不含客製化開發」兩條紅線擋住，避免 POC 變成免費客製。
+- 角色：我設計 POC 方案結構和報價策略，BD 負責客戶關係，工程師做部署。我主持回饋會議並負責需求規格文件整理。
+- Timeline：POC 提案準備 1 週→客戶資安審核 2 週→POC 執行 8 週→報價轉換 2 週。
+- 反事實：如果收費 pilot——富邦光採購就要 3 個月，再加 8 週 pilot = 半年。免費 POC 2 個月就能進到報價階段。
+- Stakeholder：客戶採購部門一開始對「免費」有疑慮（「天下沒有白吃的午餐」），用明確的 deliverable list（4 項交付物）和邊界（不含客製）化解。
+
+#使用者研究 #訪談設計 #產品管理
+[專案] 企業客戶需求結構化訪談——行為問句 × 刺激物 × 四區塊收斂
+[情境] 富邦金控 Audit 平台要從 v1 升級到 v2，需要跟金控主管對齊「做什麼、不做什麼、先做哪個」。傳統需求訪談容易落入「列願望清單」，收集到一堆「未來想做」卻沒有優先級。
+[行動] 設計結構化訪談方法論：原則——問過去的行為，不問未來的意願。聽 80% 說 20%。刺激物是口袋裡的錨點，不是逐條過的 checklist。四區塊訪綱：(1) 使用者與權限（子公司各自管理員？Entra 身份組？金控 vs 子公司看到的一不一樣？）(2) 管理節奏與落差（多久看一次？什麼觸發去看？看完做什麼？誰要什麼不同的東西？）(3) 成本管控與未來架構（跨 Workspace Credit 分配、Agent 費用歸戶、多子公司匯總 vs 獨立管）(4) 收斂（只能選一件最先做什麼？三個月後什麼算成功？有沒有沒問到但很重要的？）。對方提到 Agent→帶出 Credit 歸戶。提到部門比較→帶出跨 Group 並排。提到 Codex→帶出專屬視角。辨認三種角色視角差異：主管/IT管理/資安合規。
+[結果] 訪談收斂出明確的 v2 功能優先級。避免了「什麼都想做」的訪談陷阱。三種角色的需求衝突在訪談中即被識別並處理。刺激物策略讓客戶提出自己沒想到但確實需要的功能。
+[追問素材]
+- 決策點：為什麼用刺激物而非逐條過功能清單？→逐條過會讓客戶每個都說「有需要」（禮貌性肯定），最後什麼都重要=什麼都不重要。刺激物只在客戶沒自然提到時才亮出來，當「補網」用。
+- 困難：主管說「什麼都重要」怎麼辦？→用 Q10 強迫收斂：「只能選一件最先做」。富邦的回答是「成本歸戶」——三位主管答案一致，這就是 P0。
+- 角色：我設計訪綱結構和刺激物，BD 負責安排會議，我主訪 + 記錄。訪後我整理需求規格文件。
+- Timeline：訪綱設計 3 天→訪談 2 場（各 1.5 小時）→需求整理 1 週→PRD 2 週。
+- 具體例子：「問過去」=「上一次看 ChatGPT 數據是什麼時候？看了什麼？看完做了什麼？」。「問未來」=「你覺得未來想看什麼數據？」。前者得到真實行為，後者得到願望清單。
+- 反事實：如果直接帶 v2 功能清單去 review——客戶會被框住只看我們想做的，錯過他們真正需要但我們沒想到的。
+- Stakeholder：主管視角=「報告好不好看」、IT 視角=「我能不能少做手動操作」、資安視角=「稽核查得到查不到」。三個人坐同一場但關心完全不同的事，訪綱結構讓三種需求都被識別。
+
+#課程設計 #AI工作坊 #組織賦能
+[專案] AI Agent 應用工作坊——從痛點盤點到 POC 原型的完整培訓設計
+[情境] 企業要導入 AI Agent，但員工不知道從何開始。傳統 AI 培訓停留在「展示功能」，上完課後回到座位什麼都沒改變。需要設計讓學員帶著「可落地的東西」離開的工作坊。
+[行動] 設計完整工作坊流程：(1) 課前問卷——蒐集學員職能、工作痛點、流程複雜度，提高課程效益天花板。(2) 流程梳理工作坊——顧問引導同仁梳理日常跨單位流程，辨識適合導入 AI Agent 的痛點節點，收斂成可供 IT/數位轉型/資安/業務共同討論的 Agent 應用構想。(3) AI 實作——雙軌設計：ChatGPT Desktop 流程實作（非技術者）+ Codex 專案式 AI 協作（開發者）。(4) 課後作業——每人提出至少 3 項提案，量化 FTE（Full-Time-Employee）值估算導入效益。(5) 成果展示——個人 POC 原型分享、蒐集彙整、展示 Agent 功能。範例：行銷部門「競品分析」Agent，FTE 值 0.23，可複製給其他同仁使用。
+[結果] 課程在全國電子、富邦金控、中衛等企業實施。每場收集到 30+ 個可落地的 AI Agent 提案。FTE 量化讓管理層看到具體 ROI。雙軌設計讓技術者與非技術者都有收穫。
+[追問素材]
+- 決策點：為什麼雙軌（技術/非技術）而非統一課程？→全國電子 Phase 1 包含行銷+IT+工程，單一課程會讓工程師無聊或行銷跟不上。Desktop 版降低非技術者門檻，Codex 版讓工程師直接做專案。
+- 數字來源：FTE 0.23=行銷學員估算競品分析原本每週花 1.8 小時×12 個品牌，AI 後花 0.3 小時。0.23 = (1.8-0.3)×12÷8÷5÷4（月工時 160 小時換算）。30+ 提案=每場 30 人×至少 3 項=90 項初始提案，篩選後約 30 個有落地可行性。
+- 困難：課後提案品質參差——有人寫「用 AI 寫 email」（太淺）、有人寫「用 AI 做財報分析」（超出 ChatGPT 能力）。設計評估矩陣：可行性×影響力×資安風險，幫學員收斂到可執行範圍。
+- 角色：我設計課程結構、評估矩陣和 FTE 量化方法。講師執行授課（我不直接教課），我做課前問卷分析和課後提案評估。
+- Timeline：課程設計 2 週→課前問卷 1 週→授課 2 天→課後作業 1 週→評估彙整 3 天。
+- 反事實：如果不做課前問卷——講師不知道學員痛點，課程變成通識演講。問卷讓我們提前知道「行銷最痛的是競品分析，IT 最痛的是例行報表」，課堂範例直接用他們的場景。
+- Stakeholder：HR 最在意「可以拿什麼跟老闆說」→FTE 量化正好解決這個問題。學員最在意「上完課能帶走什麼」→POC 原型。主管最在意「不要影響正常業務」→課程只佔 2 天。
+
+#跨產業 #治理顧問 #規模化
+[專案] 10+ 產業客戶 AI 治理顧問同步推進——從金融到零售的規模化複製
+[情境] Aiworks 在半年內同時服務富邦金控、玉山銀行、新光人壽、和泰產險、全國電子、是方電訊、信義房屋、建興儲存、神達集團、半導體集團等 10+ 客戶的 AI 治理。每家的組織規模（200 人到 10,000+ 人）、產業法規、AI 成熟度完全不同，但顧問人力有限。
+[行動] 建立可規模化的治理顧問交付模型：(1) 核心框架標準化——企業 AI 導入六階段（需求釐清→資安評估→治理設計→試點驗證→導入準備→場景擴散）適用所有客戶。(2) 文件模組化——治理三件套（Quickstart/Compliance SOP/資安指引）作為基礎包，客製化內容按產業疊加。(3) 工具產品化——Compliance API Dashboard、Skill Registry 從客製開發轉為標準產品（Mission Control），降低每案交付成本。(4) 陪跑模式——每月固定時數顧問服務（3 人天/月），確保持續而非一次性。金融業需額外處理 Trust Portal 證據、EKM 金鑰管理；半導體業需處理跨國多據點；零售業重在全員 adoption 速度。
+[結果] 半年內完成 10+ 客戶治理框架交付。核心框架複用率 70%+，客製化 30%。Mission Control 產品從客製專案中誕生，成為可獨立銷售的 SaaS 產品。建立起「顧問→產品→顧問+產品」的正向飛輪。
+[追問素材]
+- 決策點：為什麼用標準化框架而非每家客製？→顧問團隊 3 人要服務 10+ 客戶，全客製不可能。框架標準化讓 70% 工作可複用，只投入 30% 做產業特定調整。
+- 數字來源：70% 複用率=治理三件套+六階段框架+Compliance Dashboard 基礎版是通用的。30% 客製=金融的 Trust Portal 證據、半導體的跨國多據點、零售的全員 adoption 計畫。10+ 客戶=富邦/玉山/新光/和泰/全國電子/是方/信義/建興/神達/半導體集團（具名）。
+- 困難：人力瓶頸最嚴重在 2026 年 Q3——同時有 6 家客戶要交付，3 人顧問團隊每人同時跑 2 家。解法：把客製開發轉為產品（Mission Control），一次開發多次部署。
+- 角色：我是治理框架設計者和主要交付顧問。BD 做客戶開拓，工程師做 Mission Control 產品開發。我橋接顧問需求和產品功能。
+- Timeline：2026-04 開始同時服務多客戶→2026-06 人力瓶頸→2026-07 決定產品化→2026-09 Mission Control v1 上線→2026-10 開始用產品替代客製。
+- 反事實：如果不產品化——每家客戶要花 60-80 人天做 Compliance Dashboard，6 家就要 360-480 人天。產品化後每家部署只要 10 人天。差 30-40 倍。
+- Stakeholder：管理層一開始對「花工程資源做產品而非接更多顧問案」有猶豫。我用「每家客製 60 天 vs 產品部署 10 天」的數字說服——產品化是唯一 scalable 路徑。
+
+#開源工具 #Chrome Extension #側面專案
+[專案] Credit-Catch Chrome Extension——即時監控 ChatGPT Credit 消耗
+[情境] ChatGPT Enterprise 轉為 credit-based 定價後，使用者和管理者都無法即時看到 credit 消耗。OpenAI 只提供 Admin Console 的匯總數據，個人用戶看不到自己的即時用量。企業需要幫助員工建立成本意識。
+[行動] 開發 Chrome Extension：攔截 ChatGPT 頁面的網路請求，提取 usage metadata（model/tokens/credits），即時計算並顯示在 badge icon 上。技術選型：Manifest V3 + Service Worker + Content Script 注入。資料本地儲存（chrome.storage.local），不上傳任何資料。設計日/週/月用量儀表板，按模型和對話分類。
+[結果] 工具開源在 GitHub（DforDennies/credit-catch），可直接安裝使用。解決企業員工「不知道自己花了多少 credit」的痛點。技術驗證了 ChatGPT credit 計量可以從前端攔截提取。
+[追問素材]
+- 決策點：為什麼做 end-user 而非 admin？→Admin Console 已經有匯總數據，但個人用戶完全看不到自己花了多少。企業推「成本意識」需要每個人看到自己的用量——就像手機 data usage indicator。
+- 困難：Manifest V3 的 Service Worker 5 分鐘後休眠——如果用戶長時間對話，credit 計數器會中斷。用 chrome.alarms 每 4 分鐘 ping 一次保活，同時用 chrome.storage.local 做 persistent state。
+- 數字來源：GitHub 開源 DforDennies/credit-catch，JavaScript 約 800 行。badge 顯示當日 credit 消耗的即時數字。
+- 角色：獨立開發（個人 side project），從需求發想到上架。在 Aiworks 內部先當 dogfooding 工具——16 人團隊使用 30 天收集回饋。
+- Timeline：設計 2 天→開發 1 週→內部測試 1 週→開源發布。
+- 反事實：如果做成後端 admin dashboard——需要 Compliance API 權限，大部分企業不會開給我們。Chrome Extension 完全前端攔截，零權限需求。
+- Stakeholder：Aiworks 同事用了之後發現自己一天花 200+ credits（自以為只用了 50），直接改變了使用行為——開始選 Luna 模型而非 Sol。這就是「看到數字改變行為」的產品邏輯。
+
+#策略轉型 #地端AI #市場分析
+[專案] 台灣「地端 AI 元年」市場策略分析——從雲端到邊緣的企業 AI 部署趨勢
+[情境] 2026 年台灣企業 AI 部署出現轉折：大型企業（半導體/金融）傾向地端部署——資料不出廠、模型跑在自己的 GPU 上。中小企業則困在「小機器預裝、單點 Age AI、雲端共用帳號」三種亂象。AWS Marketplace 即將開放 OpenAI 直購（2026-12），通路結構將根本改變。
+[行動] 深度分析三層市場結構並設計應對策略：(1) 大型企業地端需求——VLM 蒸餾（Qwen3-VL-4B）讓模型可在消費級 GPU 運行，Mission Control 支援 Air-gapped 部署。(2) 中型企業混合需求——ChatGPT Enterprise 雲端 + 地端 Compliance 監控，Mission Control 是「控制塔」。(3) SMB 雲端需求——直接用 ChatGPT Team，輕量治理。分析 AWS 直購開放後的通路衝擊：從「賣授權」的交易型收入→「賣治理+賦能」的服務型收入。OpenAI 確保工具持續領先，Aiworks 確保投資真正落地——這是核心價值重定義。
+[結果] 市場策略分析報告呈交管理層，支撐 2027 年戰略規劃。Mission Control Air-gapped 部署能力成為金融客戶選擇 Aiworks 的關鍵因素。VLM 蒸餾技術儲備為未來地端方案打下基礎。
+[追問素材]
+- 決策點：為什麼不做 SMB？→SMB 客單價 $5-10 萬/年，客製化需求一樣多但支付能力低。寧可做 5 家 $500 萬企業客戶而非 50 家 $10 萬 SMB。人力回報率差 10 倍。
+- 數字來源：AWS $38B 7 年合約=公開新聞。2026-12 Marketplace 開放=AWS 官方公告。VLM Qwen3-VL-4B=實際訓練完成的模型，可在 RTX 4090（消費級 $1,600）跑推理。
+- 困難：管理層一開始想「兩邊都做」（雲端+地端+SMB），我用人力資源算數說服——3 人顧問團隊+4 人工程團隊，只能選一個市場做深。選了「大型企業治理」因為客單價最高、壁壘最深。
+- 角色：我做市場分析報告和戰略建議，管理層做最終決策。
+- Timeline：2026-08 市場分析→2026-09 戰略報告→2026-10 管理層採納→2027 年規劃納入。
+- 反事實：如果通路開放後不轉型——企業直接在 AWS Marketplace 買 ChatGPT Enterprise，Aiworks 變成純 reseller 被砍中間利潤。轉向治理+賦能服務是唯一不被通路取代的路。
+- Stakeholder：CEO 對「放棄 SMB」有情感抗拒（「這是我們最早的客群」），用數據（SMB churn 60%+ vs Enterprise churn 10%）說服。
+
+#金融業導入 #六階段框架 #資安合規
+[專案] 金融業 AI 導入六階段框架——從資安審查到場景擴散的完整路徑
+[情境] 金融業導入 AI 與一般企業不同——要過資安、法遵、採購三關。OpenAI Trust Portal 有 ISO/SOC 2 Type 2/DPA 等文件，但企業不知道怎麼對應到自己的檢核表。從評估到上線可能要 6 個月以上。
+[行動] 設計金融業專用的六階段導入框架：(1) 需求釐清——場景與資料分級、成功條件定義。(2) 資安評估——原廠 Trust Portal 證據整理（ISO 證書/SOC 2 報告/安全白皮書/DPA）、與企業檢核表逐項比對、技術 Q&A 回覆。(3) 治理設計——身分與角色政策（SSO/SCIM/RBAC）、責任邊界、資料保護承諾（傳輸 TLS 1.2+/靜態 AES-256）。(4) 試點驗證——種子部門環境與權限設定、場景與儀表板驗證。(5) 導入準備——數據週會、切換與交接、Champion 培養。(6) 場景擴散——分眾培訓、用量與議題追蹤、ROI 量測。關鍵原則：「先確認資料與責任，再以試點證據支援導入決策」、「資安審查、受控試用與管理交接，接成同一條導入路徑」。
+[結果] 六階段框架在富邦金控、玉山銀行等金融客戶實施。資安評估期從「不知道要多久」縮短到可預估的 4-6 週。Trust Portal 證據整理成金融業通用文件包，可跨客戶複用。
+[追問素材]
+- 決策點：為什麼六階段而非三階段（評估→pilot→rollout）？→金融業的資安、法遵、採購是三個獨立門檻，每個都有自己的 timeline 和 stakeholder。壓縮成三階段會漏掉法遵審查和 Champion 培養，導致上線後沒人用。
+- 數字來源：4-6 週資安評估期=富邦和玉山的實際經驗，含 Trust Portal 文件整理 1 週+對齊企業檢核表 2 週+Q&A 1-2 週。
+- 困難：法遵團隊最常卡在「資料保留政策」——OpenAI 保留 30 天對話紀錄，但金融法規要求 7 年。解法：Mission Control Audit 做長期保存（2 年基礎+可延長），但 7 年需要額外 storage 規劃。
+- 角色：我設計六階段框架，BD 負責客戶管理，資安顧問（1 人）配合 Trust Portal 整理，工程師做 Mission Control 部署。
+- Timeline：整體 4-6 個月。需求釐清 2 週→資安評估 4-6 週→治理設計 2 週→試點 4 週→導入準備 2 週→擴散 ongoing。
+- 反事實：如果跳過「試點驗證」直接全面上線——2,000 人同時開放，資安事件風險不可控。50 人 pilot 出問題影響範圍小，也能收集真實使用數據給資安團隊看。
+- Stakeholder：SOC 2 報告看三個重點：(1) 查核期間是否涵蓋最近 12 個月、(2) 例外事項有幾個+嚴重度、(3) 控制範圍是否涵蓋 ChatGPT Enterprise（不是只有 API）。法遵團隊最在意 DPA 的管轄法律和爭議解決條款。
