@@ -33,14 +33,6 @@ struct CopilotView: View {
             }
 
             HStack(spacing: 6) {
-                Toggle(isOn: $bridge.autoSpeak) {
-                    Text(bridge.autoSpeak ? L("翻译说") : L("原音说"))
-                        .font(.system(size: 12))
-                        .foregroundStyle(bridge.autoSpeak ? Palette.ink : Palette.secondary)
-                }
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-
                 Spacer()
 
                 if bridge.isCopilotActive {

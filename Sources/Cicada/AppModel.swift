@@ -347,12 +347,6 @@ final class AppModel: ObservableObject {
             self?.recordSaid(src, dst, from: from, to: to, secondsAgo: ago)
             self?.copilotBridge.heardMyVoice(src)
         }
-        copilotBridge.speakText = { [weak self] text, lang in
-            guard let self else { return }
-            let locale = Locale(identifier: lang).identifier
-            Task { await self.speak.speak(text, language: locale) }
-        }
-
         let began: () -> Void = { [weak self] in
             DispatchQueue.main.async { MainActor.assumeIsolated { self?.speak.pressBegan() } }
         }
@@ -2276,24 +2270,17 @@ final class AppModel: ObservableObject {
         // copilot:research — start research/訪談 mode
         // copilot:stop — revert to meeting mode
         // copilot:key:<key> — save Gemini API key
-        // copilot:auto:on/off — toggle auto-speak
         case "copilot":
             switch arg {
             case "interview":
                 copilotBridge.startCopilot(mode: .interview)
-                debugLog("copilot: interview mode (autoSpeak=\(copilotBridge.autoSpeak), bank=\(copilotBridge.selectedBank?.name ?? "none"))")
+                debugLog("copilot: interview mode (bank=\(copilotBridge.selectedBank?.name ?? "none"))")
             case "research":
                 copilotBridge.startCopilot(mode: .research)
-                debugLog("copilot: research mode (autoSpeak=\(copilotBridge.autoSpeak))")
+                debugLog("copilot: research mode")
             case "stop":
                 copilotBridge.stopCopilot()
                 debugLog("copilot: stopped, meeting mode")
-            case "auto:on":
-                copilotBridge.autoSpeak = true
-                debugLog("copilot: auto-speak ON")
-            case "auto:off":
-                copilotBridge.autoSpeak = false
-                debugLog("copilot: auto-speak OFF (teleprompter only)")
             case "bank:list":
                 if copilotBridge.storyBanks.isEmpty {
                     debugLog("copilot: no story banks loaded")
@@ -2326,7 +2313,7 @@ final class AppModel: ObservableObject {
                         debugLog("copilot: unknown bank '\(bankName)'. use copilot:bank:list")
                     }
                 } else {
-                    debugLog("copilot: use interview/research/stop/key:<key>/auto:on/auto:off/bank:list/bank:<name>")
+                    debugLog("copilot: use interview/research/stop/key:<key>/bank:list/bank:<name>")
                 }
             }
         default: debugFail("unknown debug command: \(parts.first ?? "")", code: "unknown_command")

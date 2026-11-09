@@ -3,7 +3,7 @@ import Foundation
 // MARK: - Copilot Bridge
 // Connects Cicada's ListenEngine to the Copilot engine.
 // Modes: .meeting (original Cicada), .interview (job interview), .research (user research/訪談).
-// autoSpeak: ON = pipe suggestion to SpeakEngine, OFF = teleprompter only.
+// Teleprompter only: suggestions display on screen, user speaks via right-⌥ talk key.
 
 @MainActor
 final class CopilotBridge: ObservableObject {
@@ -30,7 +30,7 @@ final class CopilotBridge: ObservableObject {
     @Published private(set) var mode: Mode = .meeting
     private(set) var copilot: CopilotEngine?
 
-    @Published var autoSpeak = true
+    @Published var autoSpeak = false
 
     @Published var lastQuestionOriginal = ""
     @Published var lastQuestionTranslated = ""
@@ -58,7 +58,7 @@ final class CopilotBridge: ObservableObject {
         return storyBanks.first { $0.id == id } ?? storyBanks.first
     }
 
-    var speakText: ((_ text: String, _ lang: String) -> Void)?
+    // speakText removed: user speaks via right-⌥ talk key, not AI TTS
 
     private var silenceTimer: Timer?
     private let silenceDelay: TimeInterval = 0.8
