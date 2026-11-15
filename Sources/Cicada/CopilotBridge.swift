@@ -47,6 +47,7 @@ final class CopilotBridge: ObservableObject {
 
     @Published var suggestionLang = "zh"
     @Published var outputLang = "en"
+    private var glossaryReplacements: [(pattern: String, replacement: String)] = []
 
     var displayLangs: (primary: String, secondary: String) {
         (suggestionLang, outputLang)
@@ -58,10 +59,10 @@ final class CopilotBridge: ObservableObject {
         return storyBanks.first { $0.id == id } ?? storyBanks.first
     }
 
-    // speakText removed: user speaks via right-⌥ talk key, not AI TTS
+    var speakText: ((String, String) async -> Void)?
 
     private var silenceTimer: Timer?
-    private let silenceDelay: TimeInterval = 0.8
+    private var silenceDelay: TimeInterval { autoSpeak ? 3.5 : 0.8 }
     private var pendingQuestion = ""
 
     var isCopilotActive: Bool { mode == .interview || mode == .research }
@@ -76,6 +77,7 @@ final class CopilotBridge: ObservableObject {
 
     init() {
         loadDefaultStoryBanks()
+        loadGlossary()
     }
 
     // MARK: - Story Bank Management
@@ -119,6 +121,37 @@ final class CopilotBridge: ObservableObject {
         return true
     }
 
+    // MARK: - Glossary (proper noun correction)
+
+    private func loadGlossary() {
+        var replacements: [(String, String)] = []
+        for dir in Self.defaultDataPaths {
+            let file = dir.appendingPathComponent("glossary.txt")
+            guard let content = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            for line in content.components(separatedBy: .newlines) {
+                let trimmed = line.trimmingCharacters(in: .whitespaces)
+                guard !trimmed.isEmpty, !trimmed.hasPrefix("#") else { continue }
+                let parts = trimmed.components(separatedBy: "=")
+                guard parts.count == 2 else { continue }
+                let pattern = parts[0].trimmingCharacters(in: .whitespaces)
+                let replacement = parts[1].trimmingCharacters(in: .whitespaces)
+                guard !pattern.isEmpty, !replacement.isEmpty else { continue }
+                replacements.append((pattern, replacement))
+            }
+            debugLog("copilot: loaded \(replacements.count) glossary entries from \(file.path)")
+        }
+        glossaryReplacements = replacements
+    }
+
+    func applyGlossary(_ text: String) -> String {
+        guard !glossaryReplacements.isEmpty else { return text }
+        var result = text
+        for (pattern, replacement) in glossaryReplacements {
+            result = result.replacingOccurrences(of: pattern, with: replacement, options: .caseInsensitive)
+        }
+        return result
+    }
+
     func setMode(_ mode: Mode) {
         self.mode = mode
         if mode == .meeting {
@@ -154,13 +187,25 @@ final class CopilotBridge: ObservableObject {
             }
         }
 
+        var effectiveResearchGoal = researchGoal
+        if mode == .research, effectiveResearchGoal.isEmpty {
+            for dir in Self.defaultDataPaths {
+                let file = dir.appendingPathComponent("research-notes.txt")
+                if let content = try? String(contentsOf: file, encoding: .utf8), !content.isEmpty {
+                    effectiveResearchGoal = content
+                    debugLog("copilot: loaded research notes from \(file.path) (\(content.count)ch)")
+                    break
+                }
+            }
+        }
+
         let engine = CopilotEngine(
             mode: mode == .research ? .research : .interview,
             resume: resume,
             jobDescription: effectiveJD,
             stories: effectiveStories,
             knowledgeProfile: effectiveKnowledge,
-            researchGoal: researchGoal,
+            researchGoal: effectiveResearchGoal,
             suggestionLang: suggestionLang
         )
         engine.onSuggestion = { [weak self] text, type in
@@ -176,7 +221,10 @@ final class CopilotBridge: ObservableObject {
                         let translated = (try? await GoogleTranslator.translate(text, source: self.suggestionLang, target: self.outputLang)) ?? text
                         self.suggestionTranslated = translated
                         debugLog("copilot: translated \(self.suggestionLang)→\(self.outputLang) (\(translated.count)ch)")
+                        if self.autoSpeak { await self.speakText?(translated, self.outputLang) }
                     }
+                } else if self.autoSpeak {
+                    Task { await self.speakText?(text, self.outputLang) }
                 }
             }
         }
@@ -206,27 +254,31 @@ final class CopilotBridge: ObservableObject {
     func heardFinal(_ segment: Segment) {
         guard isCopilotActive, let copilot else { return }
 
-        let text = segment.translation ?? segment.text
+        let correctedText = applyGlossary(segment.text)
+        let text = applyGlossary(segment.translation ?? correctedText)
         guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
 
-        lastQuestionOriginal = (lastQuestionOriginal.isEmpty ? "" : lastQuestionOriginal + " ") + segment.text
+        lastQuestionOriginal = (lastQuestionOriginal.isEmpty ? "" : lastQuestionOriginal + " ") + correctedText
         if let t = segment.translation {
-            lastQuestionTranslated = (lastQuestionTranslated.isEmpty ? "" : lastQuestionTranslated + " ") + t
+            lastQuestionTranslated = (lastQuestionTranslated.isEmpty ? "" : lastQuestionTranslated + " ") + applyGlossary(t)
         }
 
-        debugLog("copilot: heardFinal \(text.prefix(60))")
+        debugLog("copilot: heardFinal \(text.prefix(60))\(correctedText != segment.text ? " [glossary: \(segment.text.prefix(30))→\(correctedText.prefix(30))]" : "")")
         pendingQuestion += (pendingQuestion.isEmpty ? "" : " ") + text
         silenceTimer?.invalidate()
         silenceTimer = Timer.scheduledTimer(withTimeInterval: silenceDelay, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let copilot = self.copilot else { return }
                 let question = self.pendingQuestion
+                let original = self.lastQuestionOriginal
                 self.pendingQuestion = ""
+                self.lastQuestionOriginal = ""
+                self.lastQuestionTranslated = ""
                 self.streamingText = ""
                 self.suggestion = ""
                 self.suggestionTranslated = ""
                 debugLog("copilot: silence debounce fired, sending to engine: \(question.prefix(80))")
-                copilot.onInterviewerDone(question)
+                copilot.onInterviewerDone(question, original: original.isEmpty ? nil : original)
             }
         }
     }

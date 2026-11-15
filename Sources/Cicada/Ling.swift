@@ -206,7 +206,7 @@ final class LingClient: ObservableObject {
     var key: String? {
         if hideKey { return nil }
         let c = config()
-        if c.provider.id == .custom {
+        if c.provider.id == .custom || c.provider.id == .localMing {
             guard let base = c.base else { return nil }
             return AIKey.read(c.provider.id.rawValue) ?? (AIProvider.isNearby(base.absoluteString) ? "" : nil)
         }
@@ -242,7 +242,7 @@ final class LingClient: ObservableObject {
         // A custom service's check is two real requests (and a hear one): fields saved one after
         // another check once, not once each.
         if hasKey {
-            let wait = config().provider.id == .custom ? 0.8 : 0
+            let wait = (config().provider.id == .custom || config().provider.id == .localMing) ? 0.8 : 0
             recheck = Task { [weak self] in
                 if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
                 guard !Task.isCancelled else { return }
@@ -297,7 +297,7 @@ final class LingClient: ObservableObject {
             await finishCheck(Self.simulated(reason), c, generation)
             return
         }
-        if c.provider.id == .custom, c.base == nil {
+        if (c.provider.id == .custom || c.provider.id == .localMing), c.base == nil {
             r.fail(.reach, .badAddress, reached: false)
             await finishCheck(r, c, generation)
             return
@@ -325,6 +325,13 @@ final class LingClient: ObservableObject {
                 var body: [String: Any] = ["model": c.textModel, "messages": [["role": "user", "content": "hi"]]]
                 c.shape(&body, maxTokens: 1)
                 _ = try await post("chat/completions", body: body, key: key, timeout: 20)
+                r.pass(upTo: .text, seconds: Date().timeIntervalSince(started))
+            case .localMing:
+                var body: [String: Any] = ["model": c.textModel, "messages": [
+                    ["role": "system", "content": "Translate the text into Simplified Chinese. Reply with the translation only.\n\nWe will ship the new version on Friday after the design review."],
+                    ["role": "user", "content": "Translate."]]]
+                c.shape(&body, maxTokens: 120)
+                _ = try await postChat(body, key: key, timeout: 30)
                 r.pass(upTo: .text, seconds: Date().timeIntervalSince(started))
             case .custom:
                 // A real sentence, the way a meeting translates: one token says nothing about a
@@ -361,7 +368,7 @@ final class LingClient: ObservableObject {
         } catch {
             r.fail(.reach, .unreachable)
         }
-        if r.failure == nil, c.provider.id != .ling {
+        if r.failure == nil, c.provider.id != .ling, c.provider.id != .localMing {
             await fetchCatalog()
             // A model the service no longer lists fails here, before a meeting finds out.
             if let listed, !c.textModel.isEmpty {
@@ -525,6 +532,12 @@ final class LingClient: ObservableObject {
             "stream": false,
         ]
         c.shape(&body, maxTokens: maxTokens, templateKwargs: !noTemplateKwargs)
+        if c.provider.id == .localMing, var msgs = body["messages"] as? [[String: Any]],
+           var sys = msgs.first, sys["role"] as? String == "system", let sc = sys["content"] as? String {
+            sys["content"] = "/no_think\n" + sc
+            msgs[0] = sys
+            body["messages"] = msgs
+        }
         if json { body["response_format"] = ["type": "json_object"] }
         let waits = Self.retryWaits(priority, audio: audio != nil, patient: patient)
         var ticket: Int?
@@ -540,10 +553,10 @@ final class LingClient: ObservableObject {
                 let root: [String: Any]
                 do {
                     root = try await postChat(body, key: key, timeout: timeout)
-                } catch Failure.http(400) where body["response_format"] != nil {
-                    // Some hosts of a model refuse JSON mode (on OpenRouter, Novita for Ling 3.1 Flash)
+                } catch Failure.http(let code) where (code == 400 || code == 501) && body["response_format"] != nil {
+                    // Some hosts refuse JSON mode (OpenRouter 400, Ollama 501)
                     // while the model answers JSON anyway: the prompt asks for it, the parsers find it.
-                    debugLog("ling: \(priority) JSON mode refused (400), asking again without it")
+                    debugLog("ling: \(priority) JSON mode refused (\(code)), asking again without it")
                     body["response_format"] = nil
                     root = try await postChat(body, key: key, timeout: timeout)
                 }
@@ -658,7 +671,8 @@ final class LingClient: ObservableObject {
                 let c = self.config()
                 guard let base = c.voiceBase, let voiceModel = c.voiceModel else { cont.finish(throwing: Failure.noKey); return }
                 let asked = Date()
-                await self.acquire(.speak)
+                // localMing TTS is a separate service from translation; skip the shared gate.
+                if c.provider.id != .localMing { await self.acquire(.speak) }
                 let queued = Date().timeIntervalSince(asked)
                 let started = Date()
                 var firstAudio: Double?
@@ -672,6 +686,49 @@ final class LingClient: ObservableObject {
                 req.timeoutInterval = 20
                 if !key.isEmpty { req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                if c.provider.id == .localMing {
+                    // Local Ming TTS proxy: POST /clone or /tts, returns WAV binary.
+                    let isClone = reference != nil
+                    let route = isClone ? "clone" : "tts"
+                    var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)!
+                    comps.path = "/" + route
+                    req = URLRequest(url: comps.url!)
+                    req.httpMethod = "POST"
+                    req.timeoutInterval = isClone ? 30 : 20
+                    req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    var body: [String: Any] = ["text": text]
+                    if let reference {
+                        body["prompt_text"] = reference.text
+                        body["prompt_audio_base64"] = reference.audio
+                    }
+                    req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+                    do {
+                        let (data, response) = try await self.session.data(for: req)
+                        let http = response as? HTTPURLResponse
+                        guard http?.statusCode == 200 else { throw Failure.http(http?.statusCode ?? 0) }
+                        // Response: {"wav_path": "/path/to.wav", "wav_url": "http://.../file.wav"} or raw WAV.
+                        let contentType = http?.value(forHTTPHeaderField: "Content-Type") ?? ""
+                        let pcm: Data
+                        if contentType.contains("json"),
+                           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                           let wavURL = obj["wav_url"] as? String, let url = URL(string: wavURL) {
+                            let (wav, _) = try await self.session.data(from: url)
+                            pcm = Self.pcm(fromWAV: wav)
+                        } else {
+                            pcm = Self.pcm(fromWAV: data)
+                        }
+                        yield(pcm)
+                        self.report(call, .speak, at: started, queued: queued, outcome: "ok", chars: text.count, firstAudio: firstAudio)
+                        self.lastVoice = (true, Date())
+                        cont.finish()
+                    } catch {
+                        let outcome = Task.isCancelled ? "cancelled" : (error as? Failure).map(Self.name) ?? "network"
+                        self.report(call, .speak, at: started, queued: queued, outcome: outcome, chars: text.count, firstAudio: firstAudio)
+                        if !Task.isCancelled { self.lastVoice = (false, Date()) }
+                        cont.finish(throwing: error)
+                    }
+                    return
+                }
                 var body: [String: Any] = ["model": voiceModel, "input": text, "response_format": "pcm"]
                 if c.provider.id == .ling {
                     body["sample_rate"] = 24000
@@ -826,6 +883,9 @@ final class LingClient: ObservableObject {
     /// answers 400 or 422 to fields it doesn't know) is asked again without it, and isn't sent it
     /// again until settings change.
     private func postChat(_ body: [String: Any], key: String, timeout: TimeInterval) async throws -> [String: Any] {
+        if config().provider.id == .localMing {
+            return try await postOllamaChat(body, key: key, timeout: timeout)
+        }
         do {
             return try await post("chat/completions", body: body, key: key, timeout: timeout)
         } catch Failure.http(let code) where (code == 400 || code == 422) && body["chat_template_kwargs"] != nil {
@@ -842,6 +902,39 @@ final class LingClient: ObservableObject {
                 throw Failure.http(code)
             }
         }
+    }
+
+    /// Ollama native /api/chat with think:false — the OpenAI endpoint ignores chat_template_kwargs.
+    private func postOllamaChat(_ body: [String: Any], key: String, timeout: TimeInterval) async throws -> [String: Any] {
+        var native: [String: Any] = [
+            "model": body["model"] as? String ?? "",
+            "messages": body["messages"] ?? [],
+            "stream": false,
+            "think": false,
+        ]
+        if let maxTokens = body["max_tokens"] as? Int {
+            native["options"] = ["num_predict": maxTokens]
+        }
+        if let fmt = body["response_format"] as? [String: Any], fmt["type"] as? String == "json_object" {
+            native["format"] = "json"
+        }
+        guard let base = config().base else { throw Failure.noKey }
+        let ollamaBase = base.deletingLastPathComponent()
+        var req = URLRequest(url: ollamaBase.appendingPathComponent("api/chat"))
+        req.httpMethod = "POST"
+        req.timeoutInterval = timeout
+        req.httpBody = try JSONSerialization.data(withJSONObject: native)
+        let data = try await send(req, key: key)
+        guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw Failure.parse }
+        let msg = root["message"] as? [String: Any] ?? [:]
+        let content = msg["content"] as? String ?? ""
+        let doneReason = root["done_reason"] as? String
+        return [
+            "choices": [["index": 0, "message": ["role": "assistant", "content": content],
+                         "finish_reason": doneReason == "length" ? "length" : "stop"]],
+            "usage": ["prompt_tokens": root["prompt_eval_count"] ?? 0,
+                      "completion_tokens": root["eval_count"] ?? 0]
+        ]
     }
 
     private func post(_ path: String, body: [String: Any], key: String, timeout: TimeInterval) async throws -> [String: Any] {
