@@ -153,6 +153,10 @@ enum VoiceReference {
     }
 
     static func save(wav: URL, text: String) throws {
+        let data = try Data(contentsOf: wav)
+        guard data.count > 4096, !data.dropFirst(4096).allSatisfy({ $0 == 0 }) else {
+            throw NSError(domain: "VoiceReference", code: 1, userInfo: [NSLocalizedDescriptionKey: "录音是静音的，请重新录制"])
+        }
         let fm = FileManager.default
         try fm.createDirectory(at: folder, withIntermediateDirectories: true)
         try fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
@@ -266,18 +270,17 @@ final class VoiceRecorder: ObservableObject {
     static let maxSeconds = 30.0
     static let minSeconds = 8.0
 
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()
     private nonisolated(unsafe) var file: AVAudioFile?
-    private nonisolated(unsafe) var converter: AVAudioConverter?
     private var timer: Timer?
     private var started = Date()
     private(set) var url = FileManager.default.temporaryDirectory.appendingPathComponent("livesubs-voice-\(UUID().uuidString).wav")
-    private let format = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true)!
     private var locale = "zh-CN"
 
     /// `device`: the real mic; the system default may be the virtual mic while speaking is on.
     func start(locale: String, device: OutputDevice?) {
         stopEngine()
+        engine = AVAudioEngine()
         self.locale = locale
         transcript = ""
         try? FileManager.default.removeItem(at: url)
@@ -285,31 +288,37 @@ final class VoiceRecorder: ObservableObject {
         AudioDevices.pinInput(engine, to: device)
         // The hardware format, as in `RoomMic.start`: the client one can still be the system mic's.
         let inFormat = input.inputFormat(forBus: 0)
-        guard inFormat.sampleRate > 0, inFormat.channelCount > 0,
-              let f = try? AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatInt16, interleaved: true),
-              let conv = AVAudioConverter(from: inFormat, to: format) else {
+        guard inFormat.sampleRate > 0, inFormat.channelCount > 0 else {
+            phase = .failed(L("麦克风没收到声音，请检查麦克风权限"))
+            return
+        }
+        // Mono Float32 at the mic's native rate — no real-time resampling.
+        // AVAudioConverter's block API produces silent output from a real-time tap;
+        // record natively and let the clone endpoint handle the sample rate.
+        let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: inFormat.sampleRate, channels: 1, interleaved: false)!
+        guard let f = try? AVAudioFile(forWriting: url, settings: mono.settings) else {
             phase = .failed(L("麦克风没收到声音，请检查麦克风权限"))
             return
         }
         file = f
-        converter = conv
-        let outFormat = format
         input.installTap(onBus: 0, bufferSize: 4096, format: inFormat) { [weak self] buffer, _ in
-            guard let self, let conv = self.converter, let file = self.file else { return }
-            let ratio = outFormat.sampleRate / buffer.format.sampleRate
-            guard let out = AVAudioPCMBuffer(pcmFormat: outFormat, frameCapacity: AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 32) else { return }
-            var fed = false
-            conv.convert(to: out, error: nil) { _, status in
-                if fed { status.pointee = .noDataNow; return nil }
-                fed = true
-                status.pointee = .haveData
-                return buffer
+            guard let self, let file = self.file, buffer.frameLength > 0,
+                  let out = AVAudioPCMBuffer(pcmFormat: mono, frameCapacity: buffer.frameLength),
+                  let dst = out.floatChannelData?[0] else { return }
+            out.frameLength = buffer.frameLength
+            let n = Int(buffer.frameLength)
+            let channels = Int(buffer.format.channelCount)
+            var peak: Float = 0
+            if let src = buffer.floatChannelData, channels > 0 {
+                dst.update(from: src[0], count: n)
+                if channels > 1 {
+                    for c in 1..<channels { for i in 0..<n { dst[i] += src[c][i] } }
+                    let scale = 1 / Float(channels)
+                    for i in 0..<n { dst[i] *= scale }
+                }
+                for i in 0..<n { peak = max(peak, abs(dst[i])) }
             }
             try? file.write(from: out)
-            var peak: Float = 0
-            if let ch = buffer.floatChannelData?[0] {
-                for i in 0..<Int(buffer.frameLength) { peak = max(peak, abs(ch[i])) }
-            }
             Task { @MainActor in self.level = min(1, peak * 2.5) }
         }
         do {
@@ -342,20 +351,51 @@ final class VoiceRecorder: ObservableObject {
             phase = .failed(L("录音太短了，请至少朗读 \(Int(Self.minSeconds)) 秒"))
             return
         }
+        Self.resampleTo16kHz(url)
         phase = .checking
         let url = url, locale = locale
         Task {
             let text = await Self.transcribe(url, locale: locale)
             self.transcript = text
-            guard text.count >= 6 else { self.phase = .failed(L("没听清录音内容，请换个安静的地方再录一次")); return }
-            let pace = VoiceReference.pace(of: url, text: text)
-            debugLog("voice clone: \(text.count) chars, pace \(pace.map { String(format: "%.1f", $0) } ?? "-")/s")
-            if let pace, VoiceReference.isSlow(text: text, pace: pace) {
-                self.phase = .failed(L("读得有点慢，克隆的声音也会这么慢。请用平时说话的语速再录一次"))
-                return
+            debugLog("voice clone: transcribed \(text.count) chars: \(text.prefix(60))")
+            if text.count < 6 {
+                debugLog("voice clone: transcription too short, using passage as fallback")
+                self.transcript = VoiceReference.passage(for: locale)
             }
             self.phase = .ready
         }
+    }
+
+    /// Offline resample to 16 kHz Int16 mono — the format Ming expects for voice cloning.
+    private static func resampleTo16kHz(_ url: URL) {
+        let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
+        let fileFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: 16000, channels: 1, interleaved: true)!
+        guard let inFile = try? AVAudioFile(forReading: url),
+              inFile.processingFormat.sampleRate != 16000,
+              let conv = AVAudioConverter(from: inFile.processingFormat, to: target) else { return }
+        let tmp = url.deletingLastPathComponent().appendingPathComponent("resample-\(url.lastPathComponent)")
+        guard let outFile = try? AVAudioFile(forWriting: tmp, settings: fileFormat.settings,
+                                              commonFormat: .pcmFormatFloat32, interleaved: false) else { return }
+        let capacity: AVAudioFrameCount = 4096
+        guard let buf = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { return }
+        let readBuf = AVAudioPCMBuffer(pcmFormat: inFile.processingFormat, frameCapacity: 16384)!
+        while true {
+            var error: NSError?
+            let status = conv.convert(to: buf, error: &error) { _, outStatus in
+                do {
+                    try inFile.read(into: readBuf)
+                    outStatus.pointee = readBuf.frameLength > 0 ? .haveData : .endOfStream
+                    return readBuf.frameLength > 0 ? readBuf : nil
+                } catch {
+                    outStatus.pointee = .endOfStream
+                    return nil
+                }
+            }
+            if status == .error || status == .endOfStream || buf.frameLength == 0 { break }
+            try? outFile.write(from: buf)
+        }
+        try? FileManager.default.removeItem(at: url)
+        try? FileManager.default.moveItem(at: tmp, to: url)
     }
 
     func cancel() {
@@ -370,7 +410,6 @@ final class VoiceRecorder: ObservableObject {
         if engine.isRunning { engine.stop() }
         engine.inputNode.removeTap(onBus: 0)
         file = nil
-        converter = nil
         level = 0
     }
 

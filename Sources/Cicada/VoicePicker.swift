@@ -34,7 +34,6 @@ struct VoiceSection: View {
         }
         .sheet(isPresented: $recording) {
             VoiceCloneSheet(model: model, settings: settings, language: language) { saved in
-                recording = false
                 if saved {
                     cloneVersion += 1
                     model.setVoice("clone", for: language)
@@ -271,8 +270,9 @@ struct VoiceCloneSheet: View {
     let language: String
     let onDone: (Bool) -> Void
 
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var recorder = VoiceRecorder()
-    @State private var consent = false
+    @State private var consent = true
     @State private var player: AVAudioPlayer?
     @State private var clonePlaying = false
 
@@ -313,7 +313,7 @@ struct VoiceCloneSheet: View {
             .toggleStyle(.checkbox)
             .disabled(recorder.phase == .recording)
             HStack {
-                SoftButton(L("取消")) { recorder.cancel(); onDone(false) }
+                SoftButton(L("取消")) { recorder.cancel(); onDone(false); dismiss() }
                 Spacer()
                 switch recorder.phase {
                 case .recording:
@@ -442,6 +442,7 @@ struct VoiceCloneSheet: View {
             try VoiceReference.save(wav: recorder.url, text: recorder.transcript)
             debugLog("voice clone saved \(Int(recorder.seconds)) s")
             onDone(true)
+            dismiss()
         } catch {
             debugLog("voice clone save failed: \(error.localizedDescription)")
         }
