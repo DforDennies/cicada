@@ -30,7 +30,7 @@ final class CopilotBridge: ObservableObject {
     @Published private(set) var mode: Mode = .meeting
     private(set) var copilot: CopilotEngine?
 
-    @Published var autoSpeak = false
+    @Published var autoSpeak = false { didSet { copilot?.autoSpeak = autoSpeak } }
 
     @Published var lastQuestionOriginal = ""
     @Published var lastQuestionTranslated = ""
@@ -60,10 +60,14 @@ final class CopilotBridge: ObservableObject {
     }
 
     var speakText: ((String, String) async -> Void)?
+    var stopSpeaking: (() -> Void)?
 
     private var silenceTimer: Timer?
-    private var silenceDelay: TimeInterval { autoSpeak ? 3.5 : 0.8 }
+    private var silenceDelay: TimeInterval { autoSpeak ? 4.0 : 0.8 }
     private var pendingQuestion = ""
+    private var lastSentQuestion = ""
+    private var lastDebouncedAt: Date?
+    private var autoSpeakTask: Task<Void, Never>?
 
     var isCopilotActive: Bool { mode == .interview || mode == .research }
 
@@ -216,15 +220,27 @@ final class CopilotBridge: ObservableObject {
             self.status = L("待命")
             if !text.isEmpty && !text.hasPrefix("⚠️") {
                 let needsTranslate = self.suggestionLang != self.outputLang
+                self.autoSpeakTask?.cancel()
+                self.stopSpeaking?()
                 if needsTranslate {
-                    Task {
+                    self.autoSpeakTask = Task {
                         let translated = (try? await GoogleTranslator.translate(text, source: self.suggestionLang, target: self.outputLang)) ?? text
                         self.suggestionTranslated = translated
                         debugLog("copilot: translated \(self.suggestionLang)→\(self.outputLang) (\(translated.count)ch)")
-                        if self.autoSpeak { await self.speakText?(translated, self.outputLang) }
+                        guard !Task.isCancelled else { debugLog("copilot: autoSpeak cancelled (newer response)"); return }
+                        if self.autoSpeak {
+                            // Holdoff: wait briefly to see if a fuller response is coming
+                            try? await Task.sleep(nanoseconds: 1_500_000_000)
+                            guard !Task.isCancelled else { debugLog("copilot: autoSpeak holdoff cancelled"); return }
+                            await self.speakText?(translated, self.outputLang)
+                        }
                     }
                 } else if self.autoSpeak {
-                    Task { await self.speakText?(text, self.outputLang) }
+                    self.autoSpeakTask = Task {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000)
+                        guard !Task.isCancelled else { return }
+                        await self.speakText?(text, self.outputLang)
+                    }
                 }
             }
         }
@@ -240,6 +256,8 @@ final class CopilotBridge: ObservableObject {
     }
 
     func stopCopilot() {
+        autoSpeakTask?.cancel()
+        autoSpeakTask = nil
         copilot?.stop()
         copilot = nil
         mode = .meeting
@@ -255,22 +273,33 @@ final class CopilotBridge: ObservableObject {
         guard isCopilotActive, let copilot else { return }
 
         let correctedText = applyGlossary(segment.text)
-        let text = applyGlossary(segment.translation ?? correctedText)
-        guard !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        let translatedText = applyGlossary(segment.translation ?? correctedText)
+        guard !correctedText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
 
         lastQuestionOriginal = (lastQuestionOriginal.isEmpty ? "" : lastQuestionOriginal + " ") + correctedText
         if let t = segment.translation {
             lastQuestionTranslated = (lastQuestionTranslated.isEmpty ? "" : lastQuestionTranslated + " ") + applyGlossary(t)
         }
 
-        debugLog("copilot: heardFinal \(text.prefix(60))\(correctedText != segment.text ? " [glossary: \(segment.text.prefix(30))→\(correctedText.prefix(30))]" : "")")
-        pendingQuestion += (pendingQuestion.isEmpty ? "" : " ") + text
+        debugLog("copilot: heardFinal \(correctedText.prefix(60))\(correctedText != segment.text ? " [glossary]" : "") [zh: \(translatedText.prefix(30))]")
+
+        // If debounce already fired and Gemini is processing, re-accumulate the old question
+        // But only if the last debounce was recent (within 8s) — otherwise it's a new question
+        if pendingQuestion.isEmpty && !lastSentQuestion.isEmpty,
+           let t = lastDebouncedAt, Date().timeIntervalSince(t) < 8 {
+            pendingQuestion = lastSentQuestion
+            debugLog("copilot: re-accumulating with previous: \(lastSentQuestion.prefix(40))…")
+        }
+        // Send original English to Gemini (not Chinese translation) for better accuracy
+        pendingQuestion += (pendingQuestion.isEmpty ? "" : " ") + correctedText
         silenceTimer?.invalidate()
         silenceTimer = Timer.scheduledTimer(withTimeInterval: silenceDelay, repeats: false) { [weak self] _ in
             Task { @MainActor in
                 guard let self, let copilot = self.copilot else { return }
                 let question = self.pendingQuestion
                 let original = self.lastQuestionOriginal
+                self.lastSentQuestion = question
+                self.lastDebouncedAt = Date()
                 self.pendingQuestion = ""
                 self.lastQuestionOriginal = ""
                 self.lastQuestionTranslated = ""

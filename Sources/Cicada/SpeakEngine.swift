@@ -158,6 +158,7 @@ final class SpeakEngine {
     private var outObserver: NSObjectProtocol?
     private var outFormat: AVAudioFormat?
     private var outDeviceUID: String?
+    private var speakGeneration = 0
     /// The device the latest `speak` call played to.
     private(set) var lastDevice: OutputDevice?
     /// Debug: also write synthesized speech here.
@@ -634,6 +635,7 @@ final class SpeakEngine {
     /// Returns after the audio has played. A stream that fails before any audio falls back to the
     /// Mac's voice, so the room always hears the sentence.
     func speak(_ text: String, language: String, device override: OutputDevice? = nil, route forced: VoiceRoute? = nil) async {
+        let gen = speakGeneration
         var voiceID: String?
         firstAudioAt = nil
         lastDevice = override ?? outputDevice()
@@ -641,13 +643,15 @@ final class SpeakEngine {
         case .stream(let make):
             let name = streamName()
             lastVoice = name
-            if await speakStream(make(text), device: override ?? outputDevice()) { return }
+            if await speakStream(make(text), device: override ?? outputDevice(), generation: gen) { return }
+            guard gen == speakGeneration else { debugLog("voice: cancelled after stream failed"); return }
             lastVoice = "system (\(name) failed)"
         case .system(let id):
             lastVoice = "system"
             voiceID = id
         }
         let buffers = await synthesize(text, language: language, voiceID: voiceID)
+        guard gen == speakGeneration else { debugLog("voice: cancelled after synthesis"); return }
         guard let first = buffers.first else { return }
         if let url = debugOutputURL, let f = AudioFileWriter.open(url, format: first.format) {
             for b in buffers { try? f.write(from: b) }
@@ -675,7 +679,7 @@ final class SpeakEngine {
     /// Core Audio restarted (virtual mic install): device IDs changed, rebuild the output next time.
     /// Plays 24 kHz mono 16-bit PCM chunks as they arrive. Returns false if nothing came, so the
     /// caller can fall back to the system voice.
-    private func speakStream(_ stream: AsyncThrowingStream<Data, Error>, device: OutputDevice?) async -> Bool {
+    private func speakStream(_ stream: AsyncThrowingStream<Data, Error>, device: OutputDevice?, generation gen: Int = -1) async -> Bool {
         let format = Self.streamFormat
         let started = Date()
         var seconds = 0.0
@@ -684,6 +688,7 @@ final class SpeakEngine {
         var firstAt: TimeInterval?
         do {
             for try await chunk in stream {
+                if gen >= 0 && gen != speakGeneration { debugLog("voice: stream cancelled mid-play"); break }
                 var bytes = carry + chunk
                 if bytes.count % 2 == 1 { carry = bytes.suffix(1); bytes = bytes.dropLast() } else { carry = Data() }
                 let frames = bytes.count / 2
@@ -743,6 +748,12 @@ final class SpeakEngine {
         do { try out.start() } catch { debugLog("voice output restart failed: \(error)"); return }
         if playing { player.play() }
         debugLog("voice output: configuration changed, engine restarted (playing=\(playing))")
+    }
+
+    func cancelSpeech() {
+        speakGeneration &+= 1
+        player.stop()
+        out.stop()
     }
 
     func resetOutput() {

@@ -42,6 +42,10 @@ struct CopilotView: View {
                 if bridge.isCopilotActive, !bridge.storyBanks.isEmpty {
                     bankIndicator
                 }
+
+                if bridge.isCopilotActive {
+                    autoSpeakToggle
+                }
             }
 
             Divider()
@@ -154,6 +158,21 @@ struct CopilotView: View {
             .buttonStyle(.plain)
             .controlSize(.small)
         }
+    }
+
+    private var autoSpeakToggle: some View {
+        Toggle(isOn: $bridge.autoSpeak) {
+            HStack(spacing: 3) {
+                Image(systemName: bridge.autoSpeak ? "speaker.wave.2.fill" : "speaker.slash")
+                    .font(.system(size: 10))
+                Text(bridge.autoSpeak ? L("自动回答") : L("静音"))
+                    .font(.system(size: 11))
+            }
+            .foregroundStyle(bridge.autoSpeak ? .orange : .secondary)
+        }
+        .toggleStyle(.button)
+        .buttonStyle(.plain)
+        .controlSize(.small)
     }
 
     private var statusColor: Color {

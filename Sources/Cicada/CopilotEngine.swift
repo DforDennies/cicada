@@ -23,6 +23,7 @@ final class CopilotEngine {
     private let knowledgeProfile: String
     private let researchGoal: String
     let suggestionLang: String
+    var autoSpeak = false
 
     static let maxTranscriptTurns = 20
 
@@ -61,14 +62,14 @@ final class CopilotEngine {
         transcript.append((speaker: speaker, text: text, at: Date()))
     }
 
-    func onInterviewerDone(_ question: String) {
+    func onInterviewerDone(_ question: String, original: String? = nil) {
         guard isActive, !question.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         addTranscript(speaker: "interviewer", text: question)
         debugLog("copilot: onInterviewerDone, question=\(question.prefix(80))")
 
         currentTask?.cancel()
         currentTask = Task {
-            await generateSuggestion(for: question)
+            await generateSuggestion(for: question, original: original)
         }
     }
 
@@ -112,15 +113,15 @@ final class CopilotEngine {
 
         if q.matches("why.*(company|role|this|leave)|為什麼.*(公司|職位|想來|離開)") { return "MOTIVATION" }
 
-        if q.matches("how.*handle|conflict|challenge|difficult|tell me.*time|請.*舉例|遇到.*怎麼|衝突|挑戰|trade-off|從零|0.?to.?1|出問題|出包|biggest (failure|mistake)|最大.*失敗|搞砸|學到.*重要|最重要.*一件事|違反直覺") { return "BEHAVIORAL" }
+        if q.matches("how.*handle|conflict|challenge|difficult|tell me.*time|describe.*(time|situation|experience)|give.*(me )?an example|walk me through|請.*舉例|遇到.*怎麼|衝突|挑戰|trade-off|從零|0.?to.?1|出問題|出包|biggest (failure|mistake)|最大.*失敗|搞砸|學到.*重要|最重要.*一件事|違反直覺|convince|persuade|disagree") { return "BEHAVIORAL" }
 
-        if q.matches("stakeholder|加 ai|priorit|cpo|resource|data scientist|資源.*排|排.*優先|product.*you admire|career coach|tutor.*功能|rule engine|需不需要.*ai|用戶.*覺得") { return "PRODUCT_SENSE" }
+        if q.matches("stakeholder|加 ai|priorit|cpo|resource|data scientist|資源.*排|排.*優先|product.*you admire|career coach|tutor.*功能|rule engine|需不需要.*ai|用戶.*覺得|how would you (improve|prioritize|launch)|product.*strategy|user.*research|feature.*roadmap|go.?to.?market") { return "PRODUCT_SENSE" }
 
         if q.matches("fairness|bias|privacy|ethics|負責任|族群.*表現") { return "RESPONSIBLE_AI" }
 
         if q.matches("metric|north.?star|衡量|指標|engagement.*上升|engagement.*下降|measure.*rag|rag.*work") { return "METRICS" }
 
-        if q.matches("system.*design|design.*(system|架構|guardrail)|architect|implement|設計.*系統|實作|怎麼做|hallucination|亂講|亂回|rag|fine.?tun|eval.*harness|guardrail|prd|unit economics|inference|cost per|架構.*設計|trained model") { return "TECHNICAL" }
+        if q.matches("system.*design|design.*(system|架構|guardrail)|architect|implement|設計.*系統|實作|怎麼做|hallucination|亂講|亂回|rag|fine.?tun|eval.*harness|guardrail|prd|unit economics|inference|cost per|架構.*設計|trained model|how would you (build|approach|implement|scale)|technical.*decision|algorithm|data.*pipeline|api.*design|microservice") { return "TECHNICAL" }
 
         if q.matches("salary|compensation|期望薪資|薪水") { return "NEGOTIATION" }
         if q.matches("weakness|strength|優點|缺點") { return "SELF_ASSESS" }
@@ -260,16 +261,25 @@ final class CopilotEngine {
         let knowledgeSection = knowledgeProfile.isEmpty ? "" : "\n## 技術知識深度\n\(knowledgeProfile)"
 
         let langRule: String
+        let wordCap = autoSpeak ? (suggestionLang == "en" ? "Max 25 words" : "最多 35 字") : (suggestionLang == "en" ? "Max 120 words" : "最多 200 字")
         switch suggestionLang {
         case "en":
-            langRule = "⚠️ You MUST reply in English only. Max 120 words. Max 15 words per sentence."
+            langRule = "⚠️ You MUST reply in English only. \(wordCap). Max 15 words per sentence."
         default:
-            langRule = "⚠️ 你必須用中文回答。最多 200 字。每句話不超過 20 個字。"
+            langRule = "⚠️ 你必須用中文回答。\(wordCap)。每句話不超過 20 個字。"
         }
+
+        let autoSpeakRule = autoSpeak ? """
+
+        ⚠️⚠️ AUTO-SPEAK 模式 — 你的回答會直接用語音合成唸出來，必須極短。
+        - \(suggestionLang == "en" ? "HARD LIMIT: 25 words max. 1-2 sentences ONLY." : "硬限制：最多 35 字。只寫 1-2 句話。")
+        - 只給核心論點，一句結論。不要鋪陳、不要解釋、不要收尾。
+        - 故事只講一個動作和一個結果，不要過程。
+        """ : ""
 
         return """
         你是面試提詞器。你輸出的每個字我會直接唸出來。
-
+        \(autoSpeakRule)
         ## 硬限制
         \(langRule)
         - 絕對禁止列舉：「第一/第二/第三」「首先/其次/最後」「First/Second/Third」「One.../Two...」「第一層/第二層」
@@ -291,7 +301,7 @@ final class CopilotEngine {
         - 回答到重點就停，不要收尾總結。留空間讓面試官追問
         - 不要說「我從中學到…」「總的來說…」「這讓我體會到…」
 
-        ## 題型：\(typeInstruction(for: questionType))
+        ## 題型：\(typeInstruction(for: questionType))\(autoSpeak ? "\n⚠️ 以上題型策略只是方向。你的輸出必須在 \(suggestionLang == "en" ? "25 words" : "35 字") 以內。如果策略需要多步驟，只做第一步。面試官會追問細節。" : "")
 
         ## 我的背景
         \(resume)
@@ -353,14 +363,16 @@ final class CopilotEngine {
 
     // MARK: - Gemini API
 
-    private func generateSuggestion(for question: String) async {
+    private func generateSuggestion(for question: String, original: String? = nil) async {
         let questionType: String
         let systemPrompt: String
         let userPrompt: String
 
         switch engineMode {
         case .interview:
-            questionType = Self.classifyQuestion(question)
+            let byTranslation = Self.classifyQuestion(question)
+            let byOriginal = original.map(Self.classifyQuestion) ?? "GENERAL"
+            questionType = byOriginal != "GENERAL" ? byOriginal : byTranslation
             if questionType == "REACT" {
                 onSuggestion?("", questionType)
                 return
@@ -427,9 +439,23 @@ final class CopilotEngine {
             }
 
             if !Task.isCancelled {
-                debugLog("copilot: gemini done, \(fullText.count) chars")
-                onSuggestion?(fullText, questionType)
-                addTranscript(speaker: "me", text: fullText)
+                var output = fullText
+                if autoSpeak && output.count > 45 {
+                    let sentences: [Character] = ["。", "！", "？", ".", "!", "?"]
+                    let clauses: [Character] = ["，", "、", ",", ";", "；"]
+                    let scan = output.prefix(45)
+                    if let idx = scan.lastIndex(where: { sentences.contains($0) }) {
+                        output = String(output[...idx])
+                    } else if let idx = scan.lastIndex(where: { clauses.contains($0) }) {
+                        output = String(output[..<idx])
+                    } else {
+                        output = String(output.prefix(45))
+                    }
+                    debugLog("copilot: autoSpeak truncated \(fullText.count)→\(output.count) chars")
+                }
+                debugLog("copilot: gemini done, \(output.count) chars")
+                onSuggestion?(output, questionType)
+                addTranscript(speaker: "me", text: output)
             }
         } catch {
             debugLog("copilot: gemini error: \(error.localizedDescription)")

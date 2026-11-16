@@ -56,6 +56,8 @@ final class AppModel: ObservableObject {
     /// Settings › AI 服务's 自己选模型 is unfolded.
     @Published var aiModelsOpen = false
 
+    /// localMing: show mode picker on notes window before starting copilot.
+    @Published var showModePicker = false
     @Published var running = false
     /// The meeting is about to end by itself (a hang-up or a long silence) unless someone keeps it going.
     @Published private(set) var ending: MeetingEndWatch.Pending?
@@ -294,14 +296,25 @@ final class AppModel: ObservableObject {
         }
         importer.onFinished = { [weak self] id in self?.importFinished(id) }
         notes.language = { [weak self] id in
-            TranslationService.englishName(self?.notesLanguageCode(id) ?? "zh-CN")
+            let lang = TranslationService.englishName(self?.notesLanguageCode(id) ?? "zh-CN")
+            if self?.settings.provider.id == .localMing { return "Simplified Chinese and English (bilingual, titles and summaries in both languages)" }
+            return lang
         }
         listen.translationOff = { [weak self] in self?.subtitles == "original" }
         roomListen.translationOff = { [weak self] in self?.subtitles == "original" }
         applyAIService()
+        if settings.provider.id == .localMing {
+            showModePicker = true
+        }
 
         installer.speakThrough = { [weak self] text, lang, device in
             await self?.speak.speak(text, language: lang, device: device)
+        }
+        copilotBridge.speakText = { [weak self] text, lang in
+            await self?.speak.speak(text, language: lang)
+        }
+        copilotBridge.stopSpeaking = { [weak self] in
+            self?.speak.cancelSpeech()
         }
         installer.onLoaded = { [weak self] in self?.virtualMicInstalled() }
 
@@ -664,6 +677,11 @@ final class AppModel: ObservableObject {
     /// `byUser`: started by a click or ⌘R, so the notes window shows at once as the sign that
     /// listening began. Starting by itself (launch, a meeting app's call) waits for the first words.
     func start(byUser: Bool = false) {
+        if showModePicker {
+            notesWindow.show(asked: true)
+            notesWindow.resize(width: 580, height: 400)
+            return
+        }
         guard !listen.isRunning else { return }
         let session = store.begin()
         diagnostics.begin()
@@ -719,6 +737,7 @@ final class AppModel: ObservableObject {
         diagnostics.end()
         stopRoomSide()
         listen.stop()
+        if settings.provider.id == .localMing { showModePicker = true }
         listen.router.setRecording(nil)
         roomListen.router.setRecording(nil)
         speak.setRecording(nil)
@@ -732,6 +751,7 @@ final class AppModel: ObservableObject {
         if settings.speakerVoices, let ended { speakerNamer.guess(ended, force: true) }
         notes.finish()
         overlay.hide()
+        if settings.provider.id == .localMing { notesWindow.hide() }
         refresh()
         updates.notifyIfDue()  // held while the meeting was on
     }
@@ -1714,7 +1734,13 @@ final class AppModel: ObservableObject {
             let snapshot = debugSnapshot(arg.split(separator: ",").map(String.init))
             DebugRun.reply?.data = snapshot
         // start:user is a click on 开始听; plain start is listening starting by itself.
-        case "start": start(byUser: arg == "user")
+        case "start":
+            if arg == "interview" || arg == "meeting" || arg == "research" {
+                showModePicker = false
+                if arg == "interview" { copilotBridge.startCopilot(mode: .interview) }
+                if arg == "research" { copilotBridge.startCopilot(mode: .research) }
+            }
+            start(byUser: true)
         case "models":
             // models:<installed,…>/<system languages,…> pretends the Mac has only these speech models
             // and languages, to test the fetch of a second model and 听不出; models:off ends it.
@@ -2169,6 +2195,16 @@ final class AppModel: ObservableObject {
         case "aiCustomHearBase": settings.aiCustomHearBase = arg; applyAIService()
         case "aiCustomRecognize": settings.aiCustomRecognize = arg == "on"; applyAIService()
         case "aiCustomOnly": settings.aiCustomOnly = arg == "on"; applyAIService()
+        // localMing:<ip> — set up Local Ming with ollama + ming-tts-serve on <ip>
+        // e.g. localMing:192.168.0.139 → text at :11434, voice at :8787
+        case "localMing":
+            let host = arg.isEmpty ? "hongdemac-mini.tail63f031.ts.net" : arg
+            settings.aiProvider = AIProvider.Kind.localMing.rawValue
+            settings.aiCustomBase = "http://\(host):11434/v1/"
+            settings.aiCustomVoiceBase = "http://\(host):8787/"
+            settings.aiModels["localMing"] = "qwen3.5:9b"
+            applyAIService()
+            debugLog("localMing: text=http://\(host):11434 voice=http://\(host):8787")
         case "subtitles": setSubtitles(arg)
         case "meetingSubtitles": setSubtitles(arg, meetingOnly: true)
         case "notesLang": setNotesLanguage(arg)
@@ -2299,8 +2335,23 @@ final class AppModel: ObservableObject {
             case "bank:off":
                 copilotBridge.storyBankEnabled = false
                 debugLog("copilot: story bank disabled")
+            case "autospeak:on":
+                copilotBridge.autoSpeak = true
+                debugLog("copilot: autoSpeak enabled")
+            case "autospeak:off":
+                copilotBridge.autoSpeak = false
+                debugLog("copilot: autoSpeak disabled")
             default:
-                if arg.hasPrefix("key:") {
+                if arg.hasPrefix("ask:") {
+                    let question = String(arg.dropFirst(4))
+                    guard copilotBridge.isCopilotActive else {
+                        debugLog("copilot: not active, start interview/research first")
+                        break
+                    }
+                    let seg = Segment(id: 0, text: question, sourceCode: "en", translation: question)
+                    copilotBridge.heardFinal(seg)
+                    debugLog("copilot: injected question: \(question.prefix(60))")
+                } else if arg.hasPrefix("key:") {
                     let key = String(arg.dropFirst(4))
                     AIKey.save(key, "gemini")
                     debugLog("copilot: gemini key saved (\(key.prefix(8))...)")
@@ -2313,7 +2364,7 @@ final class AppModel: ObservableObject {
                         debugLog("copilot: unknown bank '\(bankName)'. use copilot:bank:list")
                     }
                 } else {
-                    debugLog("copilot: use interview/research/stop/key:<key>/bank:list/bank:<name>")
+                    debugLog("copilot: use interview/research/stop/ask:<question>/key:<key>/bank:list/bank:<name>/autospeak:on/autospeak:off")
                 }
             }
         default: debugFail("unknown debug command: \(parts.first ?? "")", code: "unknown_command")
