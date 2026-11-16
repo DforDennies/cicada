@@ -63,7 +63,7 @@ final class CopilotBridge: ObservableObject {
     var stopSpeaking: (() -> Void)?
 
     private var silenceTimer: Timer?
-    private var silenceDelay: TimeInterval { autoSpeak ? 4.0 : 0.8 }
+    private var silenceDelay: TimeInterval { autoSpeak ? 2.5 : 0.8 }
     private var pendingQuestion = ""
     private var lastSentQuestion = ""
     private var lastDebouncedAt: Date?
@@ -219,27 +219,29 @@ final class CopilotBridge: ObservableObject {
             self.questionType = type
             self.status = L("待命")
             if !text.isEmpty && !text.hasPrefix("⚠️") {
-                let needsTranslate = self.suggestionLang != self.outputLang
                 self.autoSpeakTask?.cancel()
                 self.stopSpeaking?()
-                if needsTranslate {
+                if self.autoSpeak {
+                    // autoSpeak: Gemini already responds in English → TTS directly
                     self.autoSpeakTask = Task {
-                        let translated = (try? await GoogleTranslator.translate(text, source: self.suggestionLang, target: self.outputLang)) ?? text
-                        self.suggestionTranslated = translated
-                        debugLog("copilot: translated \(self.suggestionLang)→\(self.outputLang) (\(translated.count)ch)")
-                        guard !Task.isCancelled else { debugLog("copilot: autoSpeak cancelled (newer response)"); return }
-                        if self.autoSpeak {
-                            // Holdoff: wait briefly to see if a fuller response is coming
-                            try? await Task.sleep(nanoseconds: 1_500_000_000)
-                            guard !Task.isCancelled else { debugLog("copilot: autoSpeak holdoff cancelled"); return }
-                            await self.speakText?(translated, self.outputLang)
+                        // Translate en→zh for display (non-blocking, doesn't delay TTS)
+                        let displayTask = Task {
+                            let display = (try? await GoogleTranslator.translate(text, source: "en", target: self.suggestionLang)) ?? ""
+                            await MainActor.run { self.suggestionTranslated = display }
                         }
-                    }
-                } else if self.autoSpeak {
-                    self.autoSpeakTask = Task {
-                        try? await Task.sleep(nanoseconds: 1_500_000_000)
-                        guard !Task.isCancelled else { return }
+                        try? await Task.sleep(nanoseconds: 800_000_000)
+                        guard !Task.isCancelled else { displayTask.cancel(); debugLog("copilot: autoSpeak holdoff cancelled"); return }
                         await self.speakText?(text, self.outputLang)
+                    }
+                } else {
+                    // Teleprompter: translate for display only (no TTS)
+                    let needsTranslate = self.suggestionLang != self.outputLang
+                    if needsTranslate {
+                        self.autoSpeakTask = Task {
+                            let translated = (try? await GoogleTranslator.translate(text, source: self.suggestionLang, target: self.outputLang)) ?? text
+                            self.suggestionTranslated = translated
+                            debugLog("copilot: translated \(self.suggestionLang)→\(self.outputLang) (\(translated.count)ch)")
+                        }
                     }
                 }
             }

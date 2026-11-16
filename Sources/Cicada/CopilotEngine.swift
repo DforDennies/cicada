@@ -260,9 +260,12 @@ final class CopilotEngine {
 
         let knowledgeSection = knowledgeProfile.isEmpty ? "" : "\n## 技術知識深度\n\(knowledgeProfile)"
 
+        // autoSpeak: respond in English (TTS speaks directly, no translation delay)
+        // teleprompter: respond in suggestionLang (user reads on screen)
+        let effectiveLang = autoSpeak ? "en" : suggestionLang
         let langRule: String
-        let wordCap = autoSpeak ? (suggestionLang == "en" ? "Max 25 words" : "最多 35 字") : (suggestionLang == "en" ? "Max 120 words" : "最多 200 字")
-        switch suggestionLang {
+        let wordCap = autoSpeak ? "Max 25 words" : (effectiveLang == "en" ? "Max 120 words" : "最多 200 字")
+        switch effectiveLang {
         case "en":
             langRule = "⚠️ You MUST reply in English only. \(wordCap). Max 15 words per sentence."
         default:
@@ -271,10 +274,10 @@ final class CopilotEngine {
 
         let autoSpeakRule = autoSpeak ? """
 
-        ⚠️⚠️ AUTO-SPEAK 模式 — 你的回答會直接用語音合成唸出來，必須極短。
-        - \(suggestionLang == "en" ? "HARD LIMIT: 25 words max. 1-2 sentences ONLY." : "硬限制：最多 35 字。只寫 1-2 句話。")
-        - 只給核心論點，一句結論。不要鋪陳、不要解釋、不要收尾。
-        - 故事只講一個動作和一個結果，不要過程。
+        ⚠️⚠️ AUTO-SPEAK MODE — Your response is spoken directly via TTS. Keep it extremely short.
+        - HARD LIMIT: 25 words max. 1-2 sentences ONLY.
+        - Give only the core argument, one conclusion. No elaboration, no explanation, no closing.
+        - Stories: one action and one result only, no process.
         """ : ""
 
         return """
@@ -301,7 +304,7 @@ final class CopilotEngine {
         - 回答到重點就停，不要收尾總結。留空間讓面試官追問
         - 不要說「我從中學到…」「總的來說…」「這讓我體會到…」
 
-        ## 題型：\(typeInstruction(for: questionType))\(autoSpeak ? "\n⚠️ 以上題型策略只是方向。你的輸出必須在 \(suggestionLang == "en" ? "25 words" : "35 字") 以內。如果策略需要多步驟，只做第一步。面試官會追問細節。" : "")
+        ## 題型：\(typeInstruction(for: questionType))\(autoSpeak ? "\n⚠️ The type strategy above is just a direction. Your output MUST be within 25 words. If the strategy needs multiple steps, do only the first. The interviewer will ask follow-ups." : "")
 
         ## 我的背景
         \(resume)
@@ -440,18 +443,20 @@ final class CopilotEngine {
 
             if !Task.isCancelled {
                 var output = fullText
-                if autoSpeak && output.count > 45 {
-                    let sentences: [Character] = ["。", "！", "？", ".", "!", "?"]
-                    let clauses: [Character] = ["，", "、", ",", ";", "；"]
-                    let scan = output.prefix(45)
-                    if let idx = scan.lastIndex(where: { sentences.contains($0) }) {
-                        output = String(output[...idx])
-                    } else if let idx = scan.lastIndex(where: { clauses.contains($0) }) {
-                        output = String(output[..<idx])
-                    } else {
-                        output = String(output.prefix(45))
+                if autoSpeak {
+                    let words = output.split(separator: " ")
+                    if words.count > 25 {
+                        let truncated = words.prefix(25).joined(separator: " ")
+                        let sentences: [Character] = [".", "!", "?"]
+                        if let idx = truncated.lastIndex(where: { sentences.contains($0) }) {
+                            output = String(truncated[...idx])
+                        } else if let idx = truncated.lastIndex(of: ",") {
+                            output = String(truncated[..<idx])
+                        } else {
+                            output = truncated
+                        }
+                        debugLog("copilot: autoSpeak truncated \(words.count)→\(output.split(separator: " ").count) words")
                     }
-                    debugLog("copilot: autoSpeak truncated \(fullText.count)→\(output.count) chars")
                 }
                 debugLog("copilot: gemini done, \(output.count) chars")
                 onSuggestion?(output, questionType)
