@@ -17,6 +17,11 @@ final class CopilotEngine {
     private var transcript: [(speaker: String, text: String, at: Date)] = []
     private var currentTask: Task<Void, Never>?
 
+    private var speculativeTask: Task<Void, Never>?
+    private(set) var speculativeQuestion = ""
+    private var speculativeOutput: String?
+    private var speculativeConfirmed = false
+
     private let stories: String
     private let resume: String
     private let jobDescription: String
@@ -55,6 +60,9 @@ final class CopilotEngine {
         isActive = false
         currentTask?.cancel()
         currentTask = nil
+        speculativeTask?.cancel()
+        speculativeTask = nil
+        speculativeQuestion = ""
         onStatus?("已停止")
     }
 
@@ -62,8 +70,40 @@ final class CopilotEngine {
         transcript.append((speaker: speaker, text: text, at: Date()))
     }
 
+    func speculate(_ question: String) {
+        guard isActive, !question.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        if speculativeQuestion == question { return }
+        speculativeTask?.cancel()
+        speculativeQuestion = question
+        speculativeOutput = nil
+        speculativeConfirmed = false
+        speculativeTask = Task {
+            debugLog("copilot: speculative start for: \(question.prefix(60))")
+            await generateSuggestion(for: question, original: nil, speculative: true)
+        }
+    }
+
     func onInterviewerDone(_ question: String, original: String? = nil) {
         guard isActive, !question.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+
+        if speculativeQuestion == question, let task = speculativeTask, !task.isCancelled {
+            debugLog("copilot: reusing speculative for: \(question.prefix(60))")
+            addTranscript(speaker: "interviewer", text: question)
+            if let output = speculativeOutput {
+                addTranscript(speaker: "me", text: output)
+            } else {
+                speculativeConfirmed = true
+            }
+            currentTask?.cancel()
+            currentTask = task
+            speculativeTask = nil
+            speculativeQuestion = ""
+            return
+        }
+
+        speculativeTask?.cancel()
+        speculativeTask = nil
+        speculativeQuestion = ""
         addTranscript(speaker: "interviewer", text: question)
         debugLog("copilot: onInterviewerDone, question=\(question.prefix(80))")
 
@@ -366,7 +406,7 @@ final class CopilotEngine {
 
     // MARK: - Gemini API
 
-    private func generateSuggestion(for question: String, original: String? = nil) async {
+    private func generateSuggestion(for question: String, original: String? = nil, speculative: Bool = false) async {
         let questionType: String
         let systemPrompt: String
         let userPrompt: String
@@ -458,9 +498,14 @@ final class CopilotEngine {
                         debugLog("copilot: autoSpeak truncated \(words.count)→\(output.split(separator: " ").count) words")
                     }
                 }
-                debugLog("copilot: gemini done, \(output.count) chars")
+                debugLog("copilot: gemini done, \(output.count) chars\(speculative ? " [speculative]" : "")")
                 onSuggestion?(output, questionType)
-                addTranscript(speaker: "me", text: output)
+                if speculative {
+                    speculativeOutput = output
+                    if speculativeConfirmed { addTranscript(speaker: "me", text: output) }
+                } else {
+                    addTranscript(speaker: "me", text: output)
+                }
             }
         } catch {
             debugLog("copilot: gemini error: \(error.localizedDescription)")

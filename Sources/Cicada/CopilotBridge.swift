@@ -225,12 +225,10 @@ final class CopilotBridge: ObservableObject {
                     // autoSpeak: Gemini already responds in English → TTS directly
                     self.autoSpeakTask = Task {
                         // Translate en→zh for display (non-blocking, doesn't delay TTS)
-                        let displayTask = Task {
+                        Task {
                             let display = (try? await GoogleTranslator.translate(text, source: "en", target: self.suggestionLang)) ?? ""
                             await MainActor.run { self.suggestionTranslated = display }
                         }
-                        try? await Task.sleep(nanoseconds: 800_000_000)
-                        guard !Task.isCancelled else { displayTask.cancel(); debugLog("copilot: autoSpeak holdoff cancelled"); return }
                         await self.speakText?(text, self.outputLang)
                     }
                 } else {
@@ -294,6 +292,7 @@ final class CopilotBridge: ObservableObject {
         }
         // Send original English to Gemini (not Chinese translation) for better accuracy
         pendingQuestion += (pendingQuestion.isEmpty ? "" : " ") + correctedText
+        if autoSpeak { copilot.speculate(pendingQuestion) }
         silenceTimer?.invalidate()
         silenceTimer = Timer.scheduledTimer(withTimeInterval: silenceDelay, repeats: false) { [weak self] _ in
             Task { @MainActor in

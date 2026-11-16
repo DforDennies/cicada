@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import Security
 
@@ -687,7 +688,7 @@ final class LingClient: ObservableObject {
                 if !key.isEmpty { req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
                 req.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 if c.provider.id == .localMing {
-                    // Local Ming TTS proxy: POST /clone or /tts, returns WAV binary.
+                    // Local Ming TTS proxy: POST /clone or /tts, streams raw 24kHz PCM.
                     let isClone = reference != nil
                     let route = isClone ? "clone" : "tts"
                     var comps = URLComponents(url: base, resolvingAgainstBaseURL: false)!
@@ -696,28 +697,60 @@ final class LingClient: ObservableObject {
                     req.httpMethod = "POST"
                     req.timeoutInterval = isClone ? 30 : 20
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    var body: [String: Any] = ["text": text]
+                    var body: [String: Any] = ["text": text, "sample_rate": 24000, "format": "raw"]
                     if let reference {
                         body["prompt_text"] = reference.text
                         body["prompt_audio_base64"] = reference.audio
                     }
                     req.httpBody = try? JSONSerialization.data(withJSONObject: body)
                     do {
-                        let (data, response) = try await self.session.data(for: req)
+                        let (bytes, response) = try await self.session.bytes(for: req)
                         let http = response as? HTTPURLResponse
                         guard http?.statusCode == 200 else { throw Failure.http(http?.statusCode ?? 0) }
-                        // Response: {"wav_path": "/path/to.wav", "wav_url": "http://.../file.wav"} or raw WAV.
-                        let contentType = http?.value(forHTTPHeaderField: "Content-Type") ?? ""
-                        let pcm: Data
-                        if contentType.contains("json"),
-                           let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                           let wavURL = obj["wav_url"] as? String, let url = URL(string: wavURL) {
-                            let (wav, _) = try await self.session.data(from: url)
-                            pcm = Self.pcm(fromWAV: wav)
+                        let type = http?.value(forHTTPHeaderField: "Content-Type") ?? ""
+                        if type.contains("json") {
+                            // Fallback: server hasn't been updated, returns JSON with wav_url (44100Hz).
+                            var data = Data()
+                            for try await b in bytes { data.append(b) }
+                            var pcm: Data
+                            if let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                               let wavURL = obj["wav_url"] as? String, let url = URL(string: wavURL) {
+                                let (wav, _) = try await self.session.data(from: url)
+                                pcm = Self.pcm(fromWAV: wav)
+                            } else {
+                                pcm = Self.pcm(fromWAV: data)
+                            }
+                            pcm = Self.resampleInt16(pcm, from: 44100, to: 24000)
+                            yield(pcm)
                         } else {
-                            pcm = Self.pcm(fromWAV: data)
+                            // Raw PCM at 24kHz or WAV — stream in 0.1s chunks.
+                            var header = Data()
+                            var headerDone = false
+                            var chunk = Data()
+                            chunk.reserveCapacity(4800)
+                            for try await b in bytes {
+                                if !headerDone {
+                                    header.append(b)
+                                    if header.count >= 4 {
+                                        if header.prefix(4) == Data([0x52, 0x49, 0x46, 0x46]) {
+                                            // WAV (44100Hz) fallback — resample to 24kHz for speakStream
+                                            var allData = header
+                                            for try await remaining in bytes { allData.append(remaining) }
+                                            let pcm = Self.resampleInt16(Self.pcm(fromWAV: allData), from: 44100, to: 24000)
+                                            yield(pcm)
+                                            headerDone = true
+                                            break
+                                        }
+                                        headerDone = true
+                                        chunk.append(contentsOf: header)
+                                    }
+                                    continue
+                                }
+                                chunk.append(b)
+                                if chunk.count >= 4800 { yield(chunk); chunk.removeAll(keepingCapacity: true) }
+                            }
+                            if !chunk.isEmpty { yield(chunk) }
                         }
-                        yield(pcm)
                         self.report(call, .speak, at: started, queued: queued, outcome: "ok", chars: text.count, firstAudio: firstAudio)
                         self.lastVoice = (true, Date())
                         cont.finish()
@@ -796,6 +829,20 @@ final class LingClient: ObservableObject {
             }
             cont.onTermination = { _ in task.cancel() }
         }
+    }
+
+    /// Resample Int16 mono PCM from one rate to another using AVAudioConverter.
+    nonisolated static func resampleInt16(_ data: Data, from srcRate: Double, to dstRate: Double) -> Data {
+        guard srcRate != dstRate, data.count >= 2 else { return data }
+        let srcFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: srcRate, channels: 1, interleaved: true)!
+        let dstFormat = AVAudioFormat(commonFormat: .pcmFormatInt16, sampleRate: dstRate, channels: 1, interleaved: true)!
+        let frames = data.count / 2
+        guard let srcBuf = AVAudioPCMBuffer(pcmFormat: srcFormat, frameCapacity: AVAudioFrameCount(frames)) else { return data }
+        srcBuf.frameLength = AVAudioFrameCount(frames)
+        data.withUnsafeBytes { raw in memcpy(srcBuf.int16ChannelData![0], raw.baseAddress!, data.count) }
+        let converter = PCMConverter()
+        guard let dstBuf = converter.convert(srcBuf, to: dstFormat) else { return data }
+        return Data(bytes: dstBuf.int16ChannelData![0], count: Int(dstBuf.frameLength) * 2)
     }
 
     /// The samples of a WAV (its `data` chunk); the bytes as they are when there is no header.
