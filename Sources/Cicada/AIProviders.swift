@@ -10,7 +10,7 @@ import Foundation
 /// TTS arena). `inclusionai/ling-*` is Ling itself on the aggregators, so the prompts carry over.
 struct AIProvider: Identifiable, Equatable {
     enum Kind: String, CaseIterable, Identifiable {
-        case ling, openrouter, zenmux, openai, custom
+        case ling, openrouter, zenmux, openai, custom, localMing
         var id: String { rawValue }
     }
 
@@ -81,7 +81,15 @@ struct AIProvider: Identifiable, Equatable {
         id: .custom, name: L("自定义服务"), base: nil, site: nil,
         textModels: [], voiceModels: [], voices: [], clones: false, hearsAudio: false, spacing: 0.1)
 
-    static let all: [AIProvider] = [.ling, .openrouter, .zenmux, .openai, .custom]
+    /// Local Ming: ollama (translation) + ming-tts-serve (TTS + voice cloning) on the LAN.
+    /// Text goes to ollama's /v1/chat/completions; voice goes to Ming's /clone and /tts.
+    static let localMing = AIProvider(
+        id: .localMing, name: "Local Ming", base: nil, site: nil,
+        textModels: [Model(id: "qwen3.5:9b", note: L("中英翻译"))],
+        voiceModels: [Model(id: "Ming-3.0-tts-0.5B", note: L("声音克隆"))], voices: [],
+        clones: true, hearsAudio: false, spacing: 0.05)
+
+    static let all: [AIProvider] = [.ling, .openrouter, .zenmux, .openai, .custom, .localMing]
 
     static func named(_ raw: String) -> AIProvider { all.first { $0.id.rawValue == raw } ?? .ling }
 
@@ -107,7 +115,7 @@ struct AIProvider: Identifiable, Equatable {
     /// addresses, and `.local` names.
     static func isNearby(_ hostOrURL: String) -> Bool {
         let h = host(of: hostOrURL).lowercased()
-        if isLocal(h) || h.hasSuffix(".local") { return true }
+        if isLocal(h) || h.hasSuffix(".local") || h.hasSuffix(".ts.net") { return true }
         let parts = h.split(separator: ".").compactMap { Int($0) }
         if parts.count == 4, h.split(separator: ".").count == 4, parts.allSatisfy({ (0...255).contains($0) }) {
             switch (parts[0], parts[1]) {
@@ -179,7 +187,7 @@ struct AIConfig: Equatable {
         case .openai:
             body["max_completion_tokens"] = maxTokens
             body["reasoning_effort"] = "none"
-        case .custom:
+        case .custom, .localMing:
             body["max_tokens"] = maxTokens
             body["temperature"] = 0.2
             if templateKwargs { body["chat_template_kwargs"] = ["enable_thinking": false] }

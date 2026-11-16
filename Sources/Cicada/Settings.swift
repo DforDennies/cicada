@@ -150,6 +150,11 @@ final class AppSettings: ObservableObject {
         switch p.id {
         case .ling:
             return AIConfig(provider: p, base: p.base, textModel: aiModel, voiceModel: p.voiceModels.first?.id, voiceBase: p.base)
+        case .localMing:
+            let base = AIProvider.customBase(aiCustomBase)
+            let voiceBase = aiCustomVoiceBase.isEmpty ? nil : AIProvider.customBase(aiCustomVoiceBase)
+            return AIConfig(provider: p, base: base, textModel: aiModels["localMing"] ?? "qwen3.5:9b",
+                            voiceModel: "Ming-3.0-tts-0.5B", voiceBase: voiceBase ?? base)
         case .custom:
             let base = AIProvider.customBase(aiCustomBase)
             let voice = (aiVoiceModels["custom"] ?? "").trimmingCharacters(in: .whitespaces)

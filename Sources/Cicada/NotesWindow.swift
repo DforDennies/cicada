@@ -241,6 +241,7 @@ struct NotesWindowView: View {
     @State private var badgeHover = false
     @State private var badgeHint = false
     @State private var width: CGFloat = 460
+    @State private var pickerSpeak = true
     /// "结束" was clicked during a meeting with lines: the confirmation strip is showing.
     @State private var confirmEnd = false
     @State private var languageOpen = false
@@ -296,6 +297,7 @@ struct NotesWindowView: View {
                 }
             }
             .frame(width: geo.size.width, height: geo.size.height)
+            .overlay { if model.showModePicker { modePicker } }
             .onAppear { width = geo.size.width }
             .onChange(of: geo.size.width) { _, w in width = w }
         }
@@ -399,15 +401,19 @@ struct NotesWindowView: View {
                 }
             }
             if !wide {
-                HStack(spacing: 0) {
-                    segment(L("纪要"), "notes")
-                    segment(engine.notes.isEmpty && heard > 0 ? L("文字记录 · \(heard)") : L("文字记录"), "transcript")
-                    if model.copilotBridge.isCopilotActive {
-                        segment(L("提词"), "copilot")
+                HStack(spacing: 8) {
+                    HStack(spacing: 0) {
+                        segment(L("纪要"), "notes")
+                        segment(engine.notes.isEmpty && heard > 0 ? L("文字记录 · \(heard)") : L("文字记录"), "transcript")
+                        if model.copilotBridge.isCopilotActive {
+                            segment(L("提词"), "copilot")
+                        }
                     }
+                    .padding(4)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Palette.fill))
+                    Spacer(minLength: 0)
+                    modeToggle
                 }
-                .padding(4)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Palette.fill))
             }
             if wide || tab == "transcript" {
                 searchField
@@ -498,6 +504,97 @@ struct NotesWindowView: View {
     private func step(_ d: Int) {
         guard !matches.isEmpty else { return }
         matchIndex = (currentIndex + d + matches.count) % matches.count
+    }
+
+    private var modeToggle: some View {
+        let active = model.copilotBridge.isCopilotActive
+        return Button {
+            if active {
+                model.copilotBridge.stopCopilot()
+                if tab == "copilot" { tab = "notes" }
+            } else {
+                model.copilotBridge.startCopilot(mode: .interview)
+                tab = "copilot"
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Circle().fill(active ? Palette.ok : Color(white: 0.75)).frame(width: 6, height: 6)
+                Text(active ? L("面试") : L("会议")).font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(active ? Palette.ink : Palette.secondary)
+            }
+            .padding(.horizontal, 10).frame(height: 28)
+            .background(RoundedRectangle(cornerRadius: 8).fill(active ? Palette.okPale : Palette.fill))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).help(active ? L("切换到会议模式") : L("切换到面试模式"))
+    }
+
+    private var modePicker: some View {
+        ZStack {
+            Color.black.opacity(0.3).ignoresSafeArea()
+            VStack(spacing: 20) {
+                Text(L("选择模式")).font(.system(size: 18, weight: .bold)).foregroundStyle(Palette.ink)
+                HStack(spacing: 16) {
+                    modeCard(L("会议"), L("实时字幕和纪要"), "doc.text", .meeting)
+                    modeCard(L("面试"), L("提词器 + 建议回答"), "person.fill.questionmark", .interview)
+                    modeCard(L("访谈"), L("小抄 + 追问建议"), "bubble.left.and.text.bubble.right", .research)
+                }
+                Button { pickerSpeak.toggle() } label: {
+                    HStack(spacing: 8) {
+                        RoundedRectangle(cornerRadius: 10).fill(pickerSpeak ? Palette.accent : Color(white: 0.85))
+                            .frame(width: 36, height: 20)
+                            .overlay(alignment: pickerSpeak ? .trailing : .leading) {
+                                Circle().fill(.white).frame(width: 16, height: 16)
+                                    .shadow(color: .black.opacity(0.15), radius: 1, y: 1).padding(2)
+                            }
+                            .animation(.easeInOut(duration: 0.15), value: pickerSpeak)
+                        Text(L("同声传译")).font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.ink)
+                        Text(L("按住右 ⌥ 说话，对方听到翻译")).font(.system(size: 11)).foregroundStyle(Palette.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(32)
+            .background(RoundedRectangle(cornerRadius: 20).fill(Color.white).shadow(color: .black.opacity(0.15), radius: 20, y: 8))
+        }
+    }
+
+    private func modeCard(_ title: String, _ desc: String, _ icon: String, _ mode: CopilotBridge.Mode) -> some View {
+        Button {
+            model.showModePicker = false
+            if pickerSpeak { settings.autoSystemMic = true }
+            model.enableSpeaking(pickerSpeak)
+            if mode != .meeting {
+                model.copilotBridge.startCopilot(mode: mode)
+                tab = "copilot"
+            }
+            if width < 460 { setWidth(460, nil) }
+            model.start(byUser: true)
+        } label: {
+            VStack(spacing: 10) {
+                Image(systemName: icon).font(.system(size: 28)).foregroundStyle(mode != .meeting ? Palette.accent : Palette.secondary)
+                Text(title).font(.system(size: 15, weight: .semibold)).foregroundStyle(Palette.ink)
+                Text(desc).font(.system(size: 12)).foregroundStyle(Palette.tertiary).multilineTextAlignment(.center)
+            }
+            .frame(width: 130, height: 120)
+            .background(RoundedRectangle(cornerRadius: 14).fill(Palette.raised))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(Palette.line, lineWidth: 1))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var modeBadge: some View {
+        let active = model.copilotBridge.isCopilotActive
+        let label = active ? L("面试") : L("会议")
+        return HStack(spacing: 3) {
+            Circle().fill(active ? Palette.ok : Color(white: 0.75)).frame(width: 5, height: 5)
+            Text(label).font(.system(size: 11, weight: .medium))
+                .foregroundStyle(active ? Palette.ok : Palette.tertiary)
+        }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(RoundedRectangle(cornerRadius: 6).fill(active ? Palette.okPale : Palette.fill))
     }
 
     private func segment(_ title: String, _ id: String) -> some View {
@@ -970,6 +1067,7 @@ struct NotesWindowView: View {
                         .font(.system(size: 12)).foregroundStyle(Palette.tertiary)
                 }
                 Spacer()
+                modeBadge
                 capturableBadge
                 iconButton("arrow.up.left.and.arrow.down.right", help: L("展开纪要")) { setWidth(460, 760) }
             }

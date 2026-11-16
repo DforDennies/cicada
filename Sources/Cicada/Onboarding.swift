@@ -400,6 +400,11 @@ struct OnboardingView: View {
                 MainActor.assumeIsolated { if step == 1 { step = 2 } }
             }
         }
+        .onChange(of: step) { old, s in
+            if s == keyStep, settings.provider.id == .localMing {
+                step = old < s ? keyStep + 1 : keyStep - 1
+            }
+        }
     }
 
     // MARK: Header / footer

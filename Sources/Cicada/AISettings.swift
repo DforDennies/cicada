@@ -26,21 +26,23 @@ struct AISettingsView: View {
 
     private var servicePage: some View {
         VStack(alignment: .leading, spacing: 14) {
-            keyCard
+            if provider.id == .localMing { localMingCard } else { keyCard }
             if model.translationHealth.googleDown { translationCard }
             Text("现在能用的").font(.system(size: 13, weight: .semibold)).foregroundStyle(Palette.secondary)
                 .padding(.top, 4)
             SettingsCard { usage }
-            Button { withAnimation(.easeOut(duration: 0.15)) { model.aiModelsOpen.toggle() } } label: {
-                HStack(spacing: 4) {
-                    Text("自己选模型")
-                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
-                        .rotationEffect(.degrees(model.aiModelsOpen ? 90 : 0))
+            if provider.id != .localMing {
+                Button { withAnimation(.easeOut(duration: 0.15)) { model.aiModelsOpen.toggle() } } label: {
+                    HStack(spacing: 4) {
+                        Text("自己选模型")
+                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold))
+                            .rotationEffect(.degrees(model.aiModelsOpen ? 90 : 0))
+                    }
+                    .font(.system(size: 13)).foregroundStyle(Palette.secondary).contentShape(Rectangle())
                 }
-                .font(.system(size: 13)).foregroundStyle(Palette.secondary).contentShape(Rectangle())
+                .buttonStyle(.plain)
+                if model.aiModelsOpen { SettingsCard { models } }
             }
-            .buttonStyle(.plain)
-            if model.aiModelsOpen { SettingsCard { models } }
             Text(footnote).font(.system(size: 12)).foregroundStyle(Palette.tertiary)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -456,6 +458,33 @@ struct AISettingsView: View {
         .background(RoundedRectangle(cornerRadius: 14).fill(Palette.raised))
     }
 
+    private var localMingCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 8) {
+                Circle().fill(statusColor).frame(width: 8, height: 8)
+                Text(statusTitle).font(.system(size: 14, weight: .semibold)).foregroundStyle(Palette.ink)
+                if let detail = statusDetail {
+                    Text(detail).font(.system(size: 12)).foregroundStyle(Palette.tertiary).lineLimit(1)
+                }
+                Spacer()
+            }
+            HStack(spacing: 8) {
+                Text(settings.aiConfig.base?.host ?? "").font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.secondary)
+                Spacer()
+                SoftButton(ling.aiCheck.running ? L("正在检查…") : L("重新检查")) { Task { await ling.check() } }
+                    .disabled(ling.aiCheck.running)
+            }
+            if showSteps {
+                AICheckSteps(model: model, ling: ling, recheckInStep: false) { }
+                    .padding(.horizontal, 12).padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 10).fill(Color.white))
+                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(Palette.line, lineWidth: 1))
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Palette.raised))
+    }
+
     private func field(_ label: String, _ placeholder: String, _ text: Binding<String>) -> some View {
         HStack(spacing: 8) {
             Text(label).font(.system(size: 12)).foregroundStyle(Palette.secondary).frame(minWidth: 34, alignment: .leading).fixedSize()
@@ -691,11 +720,17 @@ struct AIServiceMenu: View {
     static func title(_ p: AIProvider) -> String { p.id == .custom ? L("其他（兼容 OpenAI）") : p.name }
 
     var body: some View {
-        PillMenu(value: Self.title(settings.provider),
-                 options: AIProvider.all.map { ($0.id.rawValue, $0.id == .ling ? "Ling" + L("（推荐）") : Self.title($0)) }) {
-            guard $0 != settings.aiProvider else { return }
-            settings.aiProvider = $0
-            model.applyAIService()
+        if settings.provider.id == .localMing {
+            Text("Local Ming").font(.system(size: 13, weight: .medium)).foregroundStyle(Palette.secondary)
+                .padding(.horizontal, 12).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8).fill(Palette.fill))
+        } else {
+            PillMenu(value: Self.title(settings.provider),
+                     options: AIProvider.all.map { ($0.id.rawValue, $0.id == .ling ? "Ling" + L("（推荐）") : Self.title($0)) }) {
+                guard $0 != settings.aiProvider else { return }
+                settings.aiProvider = $0
+                model.applyAIService()
+            }
         }
     }
 }

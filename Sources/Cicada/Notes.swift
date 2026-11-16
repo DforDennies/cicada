@@ -151,6 +151,7 @@ final class NotesEngine: ObservableObject {
     private var lastAttempt = Date.distantPast
     private var freshGeneration = 0
     static let interval: TimeInterval = 45
+    private var chatTimeout: TimeInterval { ling.config().provider.id == .localMing ? 180 : 90 }
     /// The most topics the final notes have (the prompt says so too; the model doesn't always listen).
     static let maxTopics = 8
     /// The most topics live notes have. Live notes used to stop at `maxTopics` and pour everything
@@ -182,6 +183,8 @@ final class NotesEngine: ObservableObject {
         state = ling.hasKey ? .idle : .noKey
         lastAttempt = Date()
         timer?.invalidate()
+        // localMing: skip live updates so the single Ollama slot stays free for translation.
+        guard ling.config().provider.id != .localMing else { return }
         let t = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
@@ -301,7 +304,7 @@ final class NotesEngine: ObservableObject {
             var next = final ? await longFinal(lines, names: names, language: lang, startedAt: session.lines.first?.t ?? 0) : nil
             for attempt in 1...(final || fresh ? 2 : 1) where next == nil {
                 let raw = try await ling.chat(content: prompt, instruction: "Update the notes. Write them in \(lang).",
-                                              priority: .notes, json: true, maxTokens: 6000, timeout: 90, patient: final)
+                                              priority: .notes, json: true, maxTokens: 6000, timeout: chatTimeout, patient: final)
                 guard let parsed = Self.parse(raw, times: lines.map(\.t), startedAt: session.lines.first?.t ?? 0) else { break }
                 if Self.written(parsed, in: lang) { next = parsed; break }
                 debugLog("notes: \(final ? "final" : "live") reply not in \(lang) (attempt \(attempt)), dropped")
@@ -361,9 +364,10 @@ final class NotesEngine: ObservableObject {
             for (i, range) in parts.enumerated() {
                 let prompt = Self.prompt(notes: MeetingNotes(), lines: Array(lines.prefix(range.upperBound)), from: range.lowerBound,
                                          language: lang, final: true, names: names, part: (i + 1, parts.count))
+                let timeout = chatTimeout
                 group.addTask { [ling] in
                     let raw = try? await ling.chat(content: prompt, instruction: "Write the notes for this part. Write them in \(lang).",
-                                                   priority: .notes, json: true, maxTokens: 6000, timeout: 90)
+                                                   priority: .notes, json: true, maxTokens: 6000, timeout: timeout)
                     return (i, raw)
                 }
             }
@@ -387,7 +391,7 @@ final class NotesEngine: ObservableObject {
         let prompt = Self.mergePrompt(parts: notes, lines: lines, language: lang, voices: voices)
         for attempt in 1...2 {
             guard let raw = try? await ling.chat(content: prompt, instruction: "Merge the notes. Write them in \(lang).",
-                                                 priority: .notes, json: true, maxTokens: 6000, timeout: 90),
+                                                 priority: .notes, json: true, maxTokens: 6000, timeout: chatTimeout),
                   var merged = Self.parse(raw, times: times, startedAt: startedAt) else { break }
             merged.topics = topics
             if Self.written(merged, in: lang) {

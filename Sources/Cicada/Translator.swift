@@ -257,8 +257,9 @@ final class TranslationService {
         prompt += "\nSubtitle: " + text
         do {
             let priority: LingClient.Priority = kind == .speak ? .speak : kind == .file ? .notes : .translate
+            let isLocal = ling.provider.id == .localMing
             let out = try await ling.chat(content: prompt, instruction: "Translate.", priority: priority,
-                                          maxTokens: 400, timeout: kind == .speak ? 10 : kind == .file ? 20 : 6,
+                                          maxTokens: 400, timeout: kind == .speak ? 10 : kind == .file ? 20 : isLocal ? 15 : 6,
                                           role: kind == .file ? "file" : "translate",
                                           onQueued: { [weak trace] in trace?.lingQueue += $0 })
             if out.isEmpty { return (nil, "empty") }
@@ -297,8 +298,9 @@ final class TranslationService {
         if !ctx.following.isEmpty { prompt += "\nLines just after:\n" + ctx.following.joined(separator: "\n") }
         prompt += "\nSubtitle: " + text
         do {
+            let isLocal = ling.provider.id == .localMing
             let out = try await ling.chat(content: prompt, instruction: "JSON only.", priority: kind == .file ? .notes : .translate,
-                                          maxTokens: 600, timeout: kind == .file ? 20 : 6,
+                                          maxTokens: 600, timeout: kind == .file ? 20 : isLocal ? 15 : 6,
                                           role: kind == .file ? "file" : "translate",
                                           onQueued: { [weak trace] in trace?.lingQueue += $0 })
             if out.isEmpty { return (nil, "empty") }
