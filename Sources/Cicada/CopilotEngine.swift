@@ -95,7 +95,7 @@ final class CopilotEngine {
 
         if q.matches("married|結婚|小孩|kids|children|懷孕|pregnant|年齡|how old|幾歲|宗教|religion|政治|政黨|性別|gender|sexual|殘障|disability") { return "PERSONAL" }
 
-        if q.matches("hobby|興趣|平常.*做什麼|weekend|假日|天氣|weather|coffee|咖啡|lunch|吃飯|從哪裡來|哪裡人|where.*from|pets?|寵物|travel|旅行|fun fact|休息.*喝|喝.*水|怎麼接觸|背景.*故事|純好奇") { return "CASUAL" }
+        if q.matches("hobby|興趣|平常.*做什麼|weekend|假日|天氣|weather|coffee|咖啡|lunch|吃飯|從哪裡來|哪裡人|where.*from|\\bpets?\\b|寵物|\\btravel\\b|旅行|fun fact|休息.*喝|喝.*水|怎麼接觸|背景.*故事|純好奇") { return "CASUAL" }
 
         if q.matches("tell me about yourself|自我介紹|介紹一下|walk.*through.*background|your background") { return "INTRO" }
 
